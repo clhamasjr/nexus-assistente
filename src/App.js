@@ -1,4 +1,6 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, createContext, useContext } from "react";
+
+const NexusCtx = createContext({});
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 // ── Supabase ──────────────────────────────────────────────────────────────────
@@ -425,313 +427,11 @@ function DatePicker({ value, onChange, placeholder = "Selecionar data e hora", s
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ── Login Screen ─────────────────────────────────────────────────────────────
-function LoginScreen({ onLogin }) {
-  const [email, setEmail] = useState("");
-  const [senha, setSenha] = useState("");
-  const [erro, setErro] = useState("");
-  const [loading, setLoading] = useState(false);
 
-  const entrar = async () => {
-    if (!email.trim() || !senha.trim()) return;
-    setLoading(true); setErro("");
-    const { error } = await sb.auth.signInWithPassword({ email: email.trim(), password: senha });
-    if (error) setErro("E-mail ou senha incorretos.");
-    setLoading(false);
-  };
-
+// ─── PANELS ───────────────────────────────────────────────────────────────
+function Dash() {
+  const {data,upd,accounts,dueAlerts,pending,upcoming,cbPending,openCb,addTask,addRem,taskText,setTaskText,taskPrio,setTaskPrio,remText,setRemText,remDate,setRemDate,setReuModal,setReuTitle,setReuPartic,setReuText,setTranscript,setReuDetail,setNoteModal,setNoteTitle,setNoteBody,chatInput,setChatInput,aiLoading,sendMsg,msgsEnd,newAccName,setNewAccName,newAccEmail,setNewAccEmail,rotinaModal,setRotinaModal,habModal,setHabModal,rotinaItem,setRotinaItem,habItem,setHabItem,rotinaTab,setRotinaTab,toggleHabito,toggleRotina,habDone,rotDone,habsFeitos,rotFeitos,totalHabs,totalRot,getWeekStats,getWeekDates,getNowMinutes,timeToMin,todayKey,todayStr,WEEK_DAYS_R,CAT_COLORS,CAT_ICONS,HAB_ICONS_LIST} = useContext(NexusCtx);
   return (
-    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",padding:20}}>
-      <div style={{background:"var(--s1)",border:"1px solid var(--b1)",borderRadius:20,padding:"40px 36px",width:"100%",maxWidth:380}}>
-        <div style={{textAlign:"center",marginBottom:32}}>
-          <div style={{fontSize:32,marginBottom:8}}>✦</div>
-          <div style={{fontSize:26,fontWeight:800,letterSpacing:-1}}>Nexus</div>
-          <div style={{fontSize:13,color:"var(--sub)",marginTop:4}}>Seu assistente pessoal</div>
-        </div>
-        {erro && <div style={{background:"rgba(240,107,107,.1)",border:"1px solid rgba(240,107,107,.3)",borderRadius:10,padding:"10px 14px",fontSize:13,color:"var(--ar)",marginBottom:16}}>{erro}</div>}
-        <div style={{marginBottom:14}}>
-          <label style={{fontSize:11,color:"var(--sub)",fontFamily:"Fira Code,monospace",letterSpacing:.5,textTransform:"uppercase"}}>E-mail</label>
-          <input value={email} onChange={e=>setEmail(e.target.value)} onKeyDown={e=>e.key==="Enter"&&entrar()} placeholder="seu@email.com" type="email" style={{marginTop:6,width:"100%"}} autoComplete="email" />
-        </div>
-        <div style={{marginBottom:24}}>
-          <label style={{fontSize:11,color:"var(--sub)",fontFamily:"Fira Code,monospace",letterSpacing:.5,textTransform:"uppercase"}}>Senha</label>
-          <input value={senha} onChange={e=>setSenha(e.target.value)} onKeyDown={e=>e.key==="Enter"&&entrar()} placeholder="••••••••" type="password" style={{marginTop:6,width:"100%"}} autoComplete="current-password" />
-        </div>
-        <button className="btn" style={{width:"100%",padding:"11px",fontSize:14,fontWeight:700}} onClick={entrar} disabled={loading}>
-          {loading ? "Entrando..." : "Entrar →"}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-export default function App() {
-  const [session, setSession] = useState(null);
-  const [perfil, setPerfil] = useState(null);
-  const [authLoading, setAuthLoading] = useState(true);
-  const [data, setData] = useState(loadLocal);
-  const [dbReady, setDbReady] = useState(false);
-  const [tab, setTab] = useState("dash");
-  const [clock, setClock] = useState(clk());
-
-  // Auth listener
-  useEffect(() => {
-    sb.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setAuthLoading(false);
-    });
-    const { data: { subscription } } = sb.auth.onAuthStateChange((_e, session) => {
-      setSession(session);
-      if (!session) { setPerfil(null); setDbReady(false); }
-    });
-    return () => subscription.unsubscribe();
-  }, []);
-
-  // Load profile and data from Supabase when logged in
-  useEffect(() => {
-    if (!session) return;
-    const userId = session.user.id;
-    const load = async () => {
-      const [
-        { data: prof },
-        { data: tasks },
-        { data: reminders },
-        { data: cobrancas },
-        { data: notes },
-        { data: reunioes },
-        { data: rotina },
-        { data: habitos },
-        { data: gcal },
-        { data: registros },
-      ] = await Promise.all([
-        sb.from("profiles").select("*").eq("id", userId).single(),
-        sb.from("tasks").select("*").eq("user_id", userId).order("created_at", { ascending: false }),
-        sb.from("reminders").select("*").eq("user_id", userId).order("date"),
-        sb.from("cobrancas").select("*").eq("user_id", userId).order("created_at", { ascending: false }),
-        sb.from("notes").select("*").eq("user_id", userId).order("updated_at", { ascending: false }),
-        sb.from("reunioes").select("*").eq("user_id", userId).order("created_at", { ascending: false }),
-        sb.from("rotina").select("*").eq("user_id", userId),
-        sb.from("habitos").select("*").eq("user_id", userId),
-        sb.from("gcal_accounts").select("*").eq("user_id", userId),
-        sb.from("registros_diarios").select("*").eq("user_id", userId),
-      ]);
-      setPerfil(prof);
-      // Build semana from registros_diarios
-      const semana = {};
-      (registros||[]).forEach(r => {
-        if (r.tipo === "habito") { if (!semana[r.data]) semana[r.data] = {}; semana[r.data][r.item_id] = r.feito; }
-        if (r.tipo === "rotina") { const k = "rot_"+r.data; if (!semana[k]) semana[k] = {}; semana[k][r.item_id] = r.feito; }
-      });
-      setData(d => ({
-        ...d,
-        tasks: tasks||[], reminders: reminders||[], cobrancas: cobrancas||[],
-        notes: notes||[], reunioes: reunioes||[], rotina: rotina||[],
-        habitos: habitos||[], gcalAccounts: gcal||[], semana,
-      }));
-      setDbReady(true);
-    };
-    load();
-  }, [session]);
-
-  // Sync helpers
-  const dbAdd = useCallback(async (table, obj) => {
-    if (!session) return obj;
-    const { data: row } = await sb.from(table).insert({ ...obj, user_id: session.user.id }).select().single();
-    return row || obj;
-  }, [session]);
-
-  const dbUpdate = useCallback(async (table, id, obj) => {
-    if (!session) return;
-    await sb.from(table).update(obj).eq("id", id);
-  }, [session]);
-
-  const dbDelete = useCallback(async (table, id) => {
-    if (!session) return;
-    await sb.from(table).delete().eq("id", id);
-  }, [session]);
-
-  const dbToggleRegistro = useCallback(async (itemId, tipo, data, feito) => {
-    if (!session) return;
-    await sb.from("registros_diarios").upsert(
-      { user_id: session.user.id, item_id: itemId, tipo, data, feito },
-      { onConflict: "user_id,item_id,data" }
-    );
-  }, [session]);
-
-  // Cobrança form
-  const [cbModal, setCbModal] = useState(null);
-  const [cbPessoa, setCbPessoa] = useState("");
-  const [cbTarefa, setCbTarefa] = useState("");
-  const [cbDate, setCbDate] = useState("");
-  const [cbPrio, setCbPrio] = useState("normal");
-  const [cbDias, setCbDias] = useState(1);
-
-  // Note modal
-  const [noteModal, setNoteModal] = useState(null);
-  const [noteTitle, setNoteTitle] = useState("");
-  const [noteBody, setNoteBody] = useState("");
-
-  // Reunião modal
-  const [reuModal, setReuModal] = useState(null);
-  const [reuTitle, setReuTitle] = useState("");
-  const [reuPartic, setReuPartic] = useState("");
-  const [reuText, setReuText] = useState("");
-  const [reuDetail, setReuDetail] = useState(null);
-
-  // Recording
-  const [recording, setRecording] = useState(false);
-  const [recTime, setRecTime] = useState(0);
-  const [transcript, setTranscript] = useState("");
-  const recTimerRef = useRef(null);
-  const recogRef = useRef(null);
-
-  // Tasks / Reminders
-  const [taskText, setTaskText] = useState("");
-  const [taskPrio, setTaskPrio] = useState("media");
-  const [remText, setRemText] = useState("");
-  const [remDate, setRemDate] = useState("");
-
-  // Chat
-  const [chatInput, setChatInput] = useState("");
-  const [aiLoading, setAiLoading] = useState(false);
-  const msgsEnd = useRef(null);
-
-  // Settings
-  const [newAccName, setNewAccName] = useState("");
-  const [newAccEmail, setNewAccEmail] = useState("");
-
-  // Resumindo reunião
-  const [resumindo, setResumindo] = useState(false);
-
-  useEffect(() => { saveLocal(data); }, [data]);
-  useEffect(() => { const t = setInterval(() => setClock(clk()), 30000); return () => clearInterval(t); }, []);
-  useEffect(() => { if (tab === "chat") msgsEnd.current?.scrollIntoView({ behavior: "smooth" }); }, [data.messages, tab, aiLoading]);
-
-  const upd = useCallback((key, val) => setData(d => ({ ...d, [key]: val })), []);
-
-  const dueAlerts = data.cobrancas.filter(c => {
-    if (c.status === "entregue") return false;
-    const days = daysUntil(c.date);
-    return c.date && days <= (c.diasAviso || 1) && days >= -30;
-  });
-
-  // ── Tasks ─────────────────────────────────────────────────────────────────
-  const addTask = () => {
-    if (!taskText.trim()) return;
-    upd("tasks", [{ id: uid(), text: taskText.trim(), prio: taskPrio, done: false, created: Date.now() }, ...data.tasks]);
-    setTaskText(""); setTaskPrio("media");
-  };
-
-  // ── Reminders ─────────────────────────────────────────────────────────────
-  const addRem = () => {
-    if (!remText.trim() || !remDate) return;
-    upd("reminders", [{ id: uid(), text: remText.trim(), date: remDate, created: Date.now() }, ...data.reminders]);
-    setRemText(""); setRemDate("");
-  };
-
-  // ── Cobranças ─────────────────────────────────────────────────────────────
-  const openCb = (obj) => {
-    if (obj === "new") { setCbPessoa(""); setCbTarefa(""); setCbDate(""); setCbPrio("normal"); setCbDias(1); }
-    else { setCbPessoa(obj.pessoa); setCbTarefa(obj.tarefa); setCbDate(obj.date || ""); setCbPrio(obj.prio); setCbDias(obj.diasAviso || 1); }
-    setCbModal(obj);
-  };
-  const saveCb = () => {
-    if (!cbPessoa.trim() || !cbTarefa.trim()) return;
-    const item = { id: cbModal?.id || uid(), pessoa: cbPessoa.trim(), tarefa: cbTarefa.trim(), date: cbDate, prio: cbPrio, diasAviso: Number(cbDias), status: cbModal?.status || "pendente", created: cbModal?.created || Date.now() };
-    if (cbModal === "new") upd("cobrancas", [item, ...data.cobrancas]);
-    else upd("cobrancas", data.cobrancas.map(c => c.id === item.id ? item : c));
-    setCbModal(null);
-  };
-
-  // ── Notes ────────────────────────────────────────────────────────────────
-  const saveNote = () => {
-    if (!noteTitle.trim() && !noteBody.trim()) return;
-    if (noteModal && noteModal !== "new") upd("notes", data.notes.map(n => n.id === noteModal.id ? { ...n, title: noteTitle, body: noteBody, updated: Date.now() } : n));
-    else upd("notes", [{ id: uid(), title: noteTitle || "Sem título", body: noteBody, created: Date.now(), updated: Date.now() }, ...data.notes]);
-    setNoteModal(null); setNoteTitle(""); setNoteBody("");
-  };
-
-  // ── Reuniões ──────────────────────────────────────────────────────────────
-  const saveReu = () => {
-    if (!reuTitle.trim()) return;
-    upd("reunioes", [{ id: uid(), title: reuTitle.trim(), participantes: reuPartic.trim(), texto: reuText.trim(), created: Date.now() }, ...data.reunioes]);
-    setReuModal(null); setReuTitle(""); setReuPartic(""); setReuText(""); setTranscript("");
-  };
-
-  const startRecording = () => {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) { alert("Use o Chrome para gravar com transcrição automática."); return; }
-    const recog = new SR();
-    recog.lang = "pt-BR"; recog.continuous = true; recog.interimResults = true;
-    recog.onresult = (e) => {
-      let final = "";
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        if (e.results[i].isFinal) final += e.results[i][0].transcript + " ";
-      }
-      setTranscript(prev => prev + final);
-    };
-    recog.start(); recogRef.current = recog;
-    setRecording(true); setRecTime(0);
-    recTimerRef.current = setInterval(() => setRecTime(t => t + 1), 1000);
-  };
-  const stopRecording = () => {
-    recogRef.current?.stop();
-    clearInterval(recTimerRef.current);
-    setRecording(false);
-  };
-  const fmtTimer = (s) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
-
-  const resumirReu = async () => {
-    if (!transcript.trim()) return;
-    setResumindo(true);
-    try {
-      const r = await askClaude([{ role: "user", content: `Resuma esta transcrição de reunião de forma estruturada com: tópicos discutidos, decisões tomadas e próximas ações:\n\n${transcript}` }]);
-      setReuText(r);
-    } catch {}
-    setResumindo(false);
-  };
-
-  // ── Chat ──────────────────────────────────────────────────────────────────
-  const sendMsg = async () => {
-    const txt = chatInput.trim();
-    if (!txt || aiLoading) return;
-    const nm = { id: uid(), role: "user", content: txt, ts: Date.now() };
-    const updated = [...data.messages, nm];
-    upd("messages", updated);
-    setChatInput(""); setAiLoading(true);
-    try {
-      const history = updated.map(m => ({ role: m.role === "user" ? "user" : "assistant", content: m.content }));
-      const reply = await askClaude(history);
-      upd("messages", [...updated, { id: uid(), role: "ai", content: reply, ts: Date.now() }]);
-    } catch { upd("messages", [...updated, { id: uid(), role: "ai", content: "Erro. Tente novamente.", ts: Date.now() }]); }
-    setAiLoading(false);
-  };
-
-  const exportData = () => {
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-    const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
-    a.download = `nexus_${new Date().toISOString().slice(0, 10)}.json`; a.click();
-  };
-
-  const pending = data.tasks.filter(t => !t.done).length;
-  const upcoming = data.reminders.filter(r => new Date(r.date) > new Date()).length;
-  const cbPending = data.cobrancas.filter(c => c.status !== "entregue").length;
-  const accounts = data.gcalAccounts || [];
-
-  const navItems = [
-    { id: "dash",      icon: "⊞", label: "Início" },
-    { id: "cobrancas", icon: "👤", label: "Cobranças", badge: cbPending, bc: "bw" },
-    { id: "tasks",     icon: "✓",  label: "Tarefas",   badge: pending,   bc: "ba" },
-    { id: "reminders", icon: "◷",  label: "Lembretes", badge: upcoming,  bc: "bg" },
-    { id: "reunioes",  icon: "🎙", label: "Reuniões",  badge: data.reunioes.length, bc: "bp" },
-    { id: "notes",     icon: "◈",  label: "Notas" },
-    { id: "chat",      icon: "◎",  label: "Chat IA" },
-    { id: "rotina",    icon: "🌅", label: "Rotina" },
-    { id: "config",    icon: "⚙",  label: "Agendas" },
-  ];
-
-  // ─── PANELS ───────────────────────────────────────────────────────────────
-  const Dash = () => (
     <div>
       <div className="ph"><div><div className="pt">Bom dia ✦</div><div className="ps">Resumo do seu dia</div></div></div>
       {dueAlerts.map(c => (
@@ -756,8 +456,11 @@ export default function App() {
       </div>
     </div>
   );
+}
 
-  const Cobrancas = () => (
+function Cobrancas() {
+  const {data,upd,accounts,dueAlerts,pending,upcoming,cbPending,openCb,addTask,addRem,taskText,setTaskText,taskPrio,setTaskPrio,remText,setRemText,remDate,setRemDate,setReuModal,setReuTitle,setReuPartic,setReuText,setTranscript,setReuDetail,setNoteModal,setNoteTitle,setNoteBody,chatInput,setChatInput,aiLoading,sendMsg,msgsEnd,newAccName,setNewAccName,newAccEmail,setNewAccEmail,rotinaModal,setRotinaModal,habModal,setHabModal,rotinaItem,setRotinaItem,habItem,setHabItem,rotinaTab,setRotinaTab,toggleHabito,toggleRotina,habDone,rotDone,habsFeitos,rotFeitos,totalHabs,totalRot,getWeekStats,getWeekDates,getNowMinutes,timeToMin,todayKey,todayStr,WEEK_DAYS_R,CAT_COLORS,CAT_ICONS,HAB_ICONS_LIST} = useContext(NexusCtx);
+  return (
     <div>
       <div className="ph">
         <div><div className="pt">Cobranças 👤</div><div className="ps">{cbPending} pendente{cbPending !== 1 ? "s" : ""}</div></div>
@@ -801,8 +504,11 @@ export default function App() {
       </div>
     </div>
   );
+}
 
-  const Tasks = () => (
+function Tasks() {
+  const {data,upd,accounts,dueAlerts,pending,upcoming,cbPending,openCb,addTask,addRem,taskText,setTaskText,taskPrio,setTaskPrio,remText,setRemText,remDate,setRemDate,setReuModal,setReuTitle,setReuPartic,setReuText,setTranscript,setReuDetail,setNoteModal,setNoteTitle,setNoteBody,chatInput,setChatInput,aiLoading,sendMsg,msgsEnd,newAccName,setNewAccName,newAccEmail,setNewAccEmail,rotinaModal,setRotinaModal,habModal,setHabModal,rotinaItem,setRotinaItem,habItem,setHabItem,rotinaTab,setRotinaTab,toggleHabito,toggleRotina,habDone,rotDone,habsFeitos,rotFeitos,totalHabs,totalRot,getWeekStats,getWeekDates,getNowMinutes,timeToMin,todayKey,todayStr,WEEK_DAYS_R,CAT_COLORS,CAT_ICONS,HAB_ICONS_LIST} = useContext(NexusCtx);
+  return (
     <div>
       <div className="ph"><div><div className="pt">Tarefas</div><div className="ps">{pending} pendente{pending !== 1 ? "s" : ""}</div></div></div>
       <div className="frow">
@@ -832,8 +538,11 @@ export default function App() {
       </div>
     </div>
   );
+}
 
-  const Reminders = () => (
+function Reminders() {
+  const {data,upd,accounts,dueAlerts,pending,upcoming,cbPending,openCb,addTask,addRem,taskText,setTaskText,taskPrio,setTaskPrio,remText,setRemText,remDate,setRemDate,setReuModal,setReuTitle,setReuPartic,setReuText,setTranscript,setReuDetail,setNoteModal,setNoteTitle,setNoteBody,chatInput,setChatInput,aiLoading,sendMsg,msgsEnd,newAccName,setNewAccName,newAccEmail,setNewAccEmail,rotinaModal,setRotinaModal,habModal,setHabModal,rotinaItem,setRotinaItem,habItem,setHabItem,rotinaTab,setRotinaTab,toggleHabito,toggleRotina,habDone,rotDone,habsFeitos,rotFeitos,totalHabs,totalRot,getWeekStats,getWeekDates,getNowMinutes,timeToMin,todayKey,todayStr,WEEK_DAYS_R,CAT_COLORS,CAT_ICONS,HAB_ICONS_LIST} = useContext(NexusCtx);
+  return (
     <div>
       <div className="ph"><div><div className="pt">Lembretes</div><div className="ps">{upcoming} futuro{upcoming !== 1 ? "s" : ""}</div></div></div>
       <div className="frow">
@@ -862,8 +571,11 @@ export default function App() {
       </div>
     </div>
   );
+}
 
-  const Reunioes = () => (
+function Reunioes() {
+  const {data,upd,accounts,dueAlerts,pending,upcoming,cbPending,openCb,addTask,addRem,taskText,setTaskText,taskPrio,setTaskPrio,remText,setRemText,remDate,setRemDate,setReuModal,setReuTitle,setReuPartic,setReuText,setTranscript,setReuDetail,setNoteModal,setNoteTitle,setNoteBody,chatInput,setChatInput,aiLoading,sendMsg,msgsEnd,newAccName,setNewAccName,newAccEmail,setNewAccEmail,rotinaModal,setRotinaModal,habModal,setHabModal,rotinaItem,setRotinaItem,habItem,setHabItem,rotinaTab,setRotinaTab,toggleHabito,toggleRotina,habDone,rotDone,habsFeitos,rotFeitos,totalHabs,totalRot,getWeekStats,getWeekDates,getNowMinutes,timeToMin,todayKey,todayStr,WEEK_DAYS_R,CAT_COLORS,CAT_ICONS,HAB_ICONS_LIST} = useContext(NexusCtx);
+  return (
     <div>
       <div className="ph">
         <div><div className="pt">Reuniões 🎙</div><div className="ps">{data.reunioes.length} salva{data.reunioes.length !== 1 ? "s" : ""}</div></div>
@@ -886,8 +598,11 @@ export default function App() {
       </div>
     </div>
   );
+}
 
-  const Notes = () => (
+function Notes() {
+  const {data,upd,accounts,dueAlerts,pending,upcoming,cbPending,openCb,addTask,addRem,taskText,setTaskText,taskPrio,setTaskPrio,remText,setRemText,remDate,setRemDate,setReuModal,setReuTitle,setReuPartic,setReuText,setTranscript,setReuDetail,setNoteModal,setNoteTitle,setNoteBody,chatInput,setChatInput,aiLoading,sendMsg,msgsEnd,newAccName,setNewAccName,newAccEmail,setNewAccEmail,rotinaModal,setRotinaModal,habModal,setHabModal,rotinaItem,setRotinaItem,habItem,setHabItem,rotinaTab,setRotinaTab,toggleHabito,toggleRotina,habDone,rotDone,habsFeitos,rotFeitos,totalHabs,totalRot,getWeekStats,getWeekDates,getNowMinutes,timeToMin,todayKey,todayStr,WEEK_DAYS_R,CAT_COLORS,CAT_ICONS,HAB_ICONS_LIST} = useContext(NexusCtx);
+  return (
     <div>
       <div className="ph">
         <div><div className="pt">Notas</div><div className="ps">{data.notes.length} nota{data.notes.length !== 1 ? "s" : ""}</div></div>
@@ -906,8 +621,11 @@ export default function App() {
       </div>
     </div>
   );
+}
 
-  const Chat = () => (
+function Chat() {
+  const {data,upd,accounts,dueAlerts,pending,upcoming,cbPending,openCb,addTask,addRem,taskText,setTaskText,taskPrio,setTaskPrio,remText,setRemText,remDate,setRemDate,setReuModal,setReuTitle,setReuPartic,setReuText,setTranscript,setReuDetail,setNoteModal,setNoteTitle,setNoteBody,chatInput,setChatInput,aiLoading,sendMsg,msgsEnd,newAccName,setNewAccName,newAccEmail,setNewAccEmail,rotinaModal,setRotinaModal,habModal,setHabModal,rotinaItem,setRotinaItem,habItem,setHabItem,rotinaTab,setRotinaTab,toggleHabito,toggleRotina,habDone,rotDone,habsFeitos,rotFeitos,totalHabs,totalRot,getWeekStats,getWeekDates,getNowMinutes,timeToMin,todayKey,todayStr,WEEK_DAYS_R,CAT_COLORS,CAT_ICONS,HAB_ICONS_LIST} = useContext(NexusCtx);
+  return (
     <div className="csh">
       <div className="ph" style={{ flexShrink: 0 }}><div><div className="pt">Chat IA ✦</div><div className="ps">Converse com o Nexus</div></div></div>
       <div className="cms">
@@ -930,7 +648,9 @@ export default function App() {
     </div>
   );
 
-  const Config = useCallback(() => (
+function Config() {
+  const {data,upd,accounts,dueAlerts,pending,upcoming,cbPending,openCb,addTask,addRem,taskText,setTaskText,taskPrio,setTaskPrio,remText,setRemText,remDate,setRemDate,setReuModal,setReuTitle,setReuPartic,setReuText,setTranscript,setReuDetail,setNoteModal,setNoteTitle,setNoteBody,chatInput,setChatInput,aiLoading,sendMsg,msgsEnd,newAccName,setNewAccName,newAccEmail,setNewAccEmail,rotinaModal,setRotinaModal,habModal,setHabModal,rotinaItem,setRotinaItem,habItem,setHabItem,rotinaTab,setRotinaTab,toggleHabito,toggleRotina,habDone,rotDone,habsFeitos,rotFeitos,totalHabs,totalRot,getWeekStats,getWeekDates,getNowMinutes,timeToMin,todayKey,todayStr,WEEK_DAYS_R,CAT_COLORS,CAT_ICONS,HAB_ICONS_LIST} = useContext(NexusCtx);
+  return (
     <div>
       <div className="ph"><div><div className="pt">Contas Google ⚙</div><div className="ps">Gerencie suas agendas conectadas</div></div></div>
       <div style={{ background: "rgba(91,138,240,.06)", border: "1px solid rgba(91,138,240,.2)", borderRadius: "var(--r10)", padding: "14px 16px", marginBottom: 20, fontSize: 13, lineHeight: 1.6, color: "var(--sub)" }}>
@@ -979,7 +699,8 @@ export default function App() {
         {!accounts.length && <div className="empty">Nenhuma conta adicionada ainda. Adicione suas contas do Google acima.</div>}
       </div>
     </div>
-  ), [newAccName, newAccEmail, accounts, upd]);
+  );
+}
 
 
   // ── Rotina ────────────────────────────────────────────────────────────────
@@ -1036,7 +757,8 @@ export default function App() {
     return { habDays, rotDays };
   };
 
-  const Rotina = () => {
+function Rotina() {
+  const {data,upd,accounts,todayKey,todayStr,WEEK_DAYS_R,CAT_COLORS,CAT_ICONS,HAB_ICONS_LIST,rotinaModal,setRotinaModal,habModal,setHabModal,rotinaItem,setRotinaItem,habItem,setHabItem,rotinaTab,setRotinaTab,toggleHabito,toggleRotina,habDone,rotDone,habsFeitos,rotFeitos,totalHabs,totalRot,getWeekStats,getWeekDates,getNowMinutes,timeToMin} = useContext(NexusCtx);
     const nowMin = getNowMinutes();
     const sorted = [...(data.rotina||[])].sort((a,b)=>timeToMin(a.hora)-timeToMin(b.hora));
     const weekStats = getWeekStats();
@@ -1160,8 +882,26 @@ export default function App() {
         </div></div>)}
       </div>
     );
-  };
+}
 
+
+  const ctxValue = {
+    data, upd, accounts, dueAlerts, pending, upcoming, cbPending, openCb,
+    addTask, addRem, taskText, setTaskText, taskPrio, setTaskPrio,
+    remText, setRemText, remDate, setRemDate,
+    setReuModal, setReuTitle, setReuPartic, setReuText, setTranscript, setReuDetail,
+    setNoteModal, setNoteTitle, setNoteBody,
+    chatInput, setChatInput, aiLoading, sendMsg, msgsEnd,
+    newAccName, setNewAccName, newAccEmail, setNewAccEmail,
+    rotinaModal, setRotinaModal, habModal, setHabModal,
+    rotinaItem, setRotinaItem, habItem, setHabItem, rotinaTab, setRotinaTab,
+    toggleHabito, toggleRotina, habDone, rotDone, habsFeitos, rotFeitos,
+    totalHabs, totalRot, getWeekStats, getWeekDates, getNowMinutes, timeToMin,
+    todayKey, todayStr, WEEK_DAYS_R: ["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"],
+    CAT_COLORS: { trabalho:"cat-work", saude:"cat-saude", pessoal:"cat-pessoal", pausa:"cat-pausa" },
+    CAT_ICONS: { trabalho:"💼", saude:"💪", pessoal:"🌟", pausa:"☕" },
+    HAB_ICONS_LIST: ["💧","🏃","📚","🧘","🥗","😴","✍️","🎯","🚴","🎵"],
+  };
   const panels = { dash: Dash, cobrancas: Cobrancas, tasks: Tasks, reminders: Reminders, reunioes: Reunioes, notes: Notes, chat: Chat, rotina: Rotina, config: Config };
   const Panel = panels[tab] || Dash;
 
@@ -1179,7 +919,7 @@ export default function App() {
   if (!session) return (<><style>{CSS}</style><LoginScreen /></>);
 
   return (
-    <>
+    <NexusCtx.Provider value={ctxValue}>
       <style>{CSS}</style>
       <div className="shell">
         <header className="topbar">
@@ -1292,6 +1032,6 @@ export default function App() {
           </div>
         </div>
       )}
-    </>
+    </NexusCtx.Provider>
   );
 }
