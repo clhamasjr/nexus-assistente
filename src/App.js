@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 
 // ── Persistence (localStorage para persistir entre sessões) ───────────────────
-const BLANK = { tasks: [], reminders: [], notes: [], messages: [], cobrancas: [], reunioes: [], gcalAccounts: [] };
+const BLANK = { tasks: [], reminders: [], notes: [], messages: [], cobrancas: [], reunioes: [], gcalAccounts: [], rotina: [], habitos: [], semana: {} };
 const load = () => {
   try { const s = localStorage.getItem("nexus_v1"); return s ? { ...BLANK, ...JSON.parse(s) } : BLANK; }
   catch { return BLANK; }
@@ -204,6 +204,75 @@ label{font-size:12px;font-weight:600;color:var(--sub);display:block;margin-botto
 .acc-name{font-size:13px;font-weight:700}
 .acc-email{font-family:'Fira Code',monospace;font-size:10px;color:var(--mut)}
 
+/* Calendar Picker */
+.cal-wrap{position:relative;width:100%}
+.cal-input-btn{background:var(--s2);border:1px solid var(--b1);color:var(--tx);font-family:'Outfit',sans-serif;font-size:13px;padding:9px 12px;border-radius:var(--r10);width:100%;cursor:pointer;text-align:left;display:flex;align-items:center;gap:8px;transition:border-color .2s}
+.cal-input-btn:hover,.cal-input-btn.open{border-color:var(--ac)}
+.cal-input-btn .placeholder{color:var(--mut)}
+.cal-popup{position:absolute;top:calc(100% + 6px);left:0;z-index:100;background:var(--s2);border:1px solid var(--b1);border-radius:var(--r14);padding:16px;box-shadow:0 12px 40px rgba(0,0,0,.6);min-width:280px;width:300px}
+.cal-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.cal-month{font-size:14px;font-weight:700;letter-spacing:-.3px}
+.cal-nav{background:var(--s3);border:1px solid var(--b1);color:var(--tx);width:28px;height:28px;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:16px;transition:background .15s;line-height:1}
+.cal-nav:hover{background:var(--s4)}
+.cal-days-head{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-bottom:6px}
+.cal-dh{font-family:'Fira Code',monospace;font-size:9px;color:var(--mut);text-align:center;padding:3px 0;text-transform:uppercase}
+.cal-days{display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
+.cal-day{aspect-ratio:1;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;border-radius:6px;cursor:pointer;transition:all .15s;border:1px solid transparent}
+.cal-day:hover{background:var(--s3);color:var(--tx)}
+.cal-day.today{border-color:var(--ac);color:var(--ac)}
+.cal-day.selected{background:var(--ac)!important;color:#fff!important;font-weight:700}
+.cal-day.empty{cursor:default;pointer-events:none}
+.cal-time{display:flex;align-items:center;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid var(--b1)}
+.cal-time label{font-family:'Fira Code',monospace;font-size:10px;color:var(--mut);white-space:nowrap;margin:0;min-width:30px}
+.cal-time input{background:var(--s3);border:1px solid var(--b1);color:var(--tx);font-family:'Fira Code',monospace;font-size:13px;padding:6px 10px;border-radius:var(--r6);width:100%;outline:none;color-scheme:dark}
+.cal-time input:focus{border-color:var(--ac)}
+.cal-confirm{margin-top:10px;width:100%;padding:8px}
+
+
+/* Rotina */
+.rotina-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.rotina-block{background:var(--s1);border:1px solid var(--b1);border-radius:var(--r14);padding:16px}
+.rotina-block-title{font-size:12px;font-weight:700;color:var(--sub);letter-spacing:.5px;text-transform:uppercase;margin-bottom:12px;display:flex;align-items:center;gap:6px}
+.timeline{display:flex;flex-direction:column;gap:4px}
+.tl-item{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:var(--r10);cursor:pointer;transition:all .15s;border:1px solid transparent}
+.tl-item:hover{background:var(--s2);border-color:var(--b1)}
+.tl-item.done-tl{opacity:.5}
+.tl-item.done-tl .tl-title{text-decoration:line-through}
+.tl-item.current{background:rgba(91,138,240,.08);border-color:rgba(91,138,240,.2)}
+.tl-time{font-family:'Fira Code',monospace;font-size:10px;color:var(--mut);min-width:40px;text-align:right}
+.tl-dot{width:8px;height:8px;min-width:8px;border-radius:50%;background:var(--b2)}
+.tl-item.current .tl-dot{background:var(--ac);animation:pulse 2s infinite}
+.tl-item.done-tl .tl-dot{background:var(--ag)}
+.tl-title{font-size:13px;font-weight:500;flex:1}
+.tl-cat{font-family:'Fira Code',monospace;font-size:9px;padding:1px 6px;border-radius:4px}
+.hab-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px}
+.hab-card{background:var(--s2);border:1px solid var(--b1);border-radius:var(--r10);padding:12px;text-align:center;cursor:pointer;transition:all .2s;position:relative}
+.hab-card.done-h{background:rgba(61,214,140,.08);border-color:rgba(61,214,140,.3)}
+.hab-card.done-h .hab-icon{filter:none}
+.hab-icon{font-size:22px;margin-bottom:6px;filter:grayscale(0.5)}
+.hab-name{font-size:11px;font-weight:600;color:var(--sub)}
+.hab-card.done-h .hab-name{color:var(--ag)}
+.hab-streak{font-family:'Fira Code',monospace;font-size:9px;color:var(--mut);margin-top:3px}
+.hab-check{position:absolute;top:6px;right:6px;font-size:10px;color:var(--ag)}
+.prog-bar{background:var(--s3);border-radius:20px;height:6px;overflow:hidden;margin-top:6px}
+.prog-fill{height:100%;border-radius:20px;transition:width .5s ease;background:linear-gradient(90deg,var(--ac),var(--ag))}
+.week-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+.week-day{background:var(--s2);border:1px solid var(--b1);border-radius:var(--r10);padding:10px 6px;text-align:center;cursor:pointer;transition:all .2s;min-height:80px}
+.week-day.today-w{border-color:var(--ac)}
+.week-day.has-items{background:rgba(91,138,240,.05)}
+.week-day-name{font-family:'Fira Code',monospace;font-size:9px;color:var(--mut);text-transform:uppercase;margin-bottom:4px}
+.week-day-num{font-size:14px;font-weight:700;margin-bottom:6px}
+.week-day.today-w .week-day-num{color:var(--ac)}
+.week-dot{width:5px;height:5px;border-radius:50%;background:var(--ac);margin:2px auto}
+.relatorio{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px}
+.rel-card{background:var(--s2);border:1px solid var(--b1);border-radius:var(--r10);padding:14px;text-align:center}
+.rel-num{font-size:26px;font-weight:800;letter-spacing:-1px}
+.rel-lbl{font-family:'Fira Code',monospace;font-size:9px;color:var(--mut);margin-top:2px}
+.cat-work{background:rgba(91,138,240,.12);color:var(--ac);border:1px solid rgba(91,138,240,.2)}
+.cat-saude{background:rgba(61,214,140,.12);color:var(--ag);border:1px solid rgba(61,214,140,.2)}
+.cat-pessoal{background:rgba(224,107,240,.12);color:var(--ap);border:1px solid rgba(224,107,240,.2)}
+.cat-pausa{background:rgba(240,184,74,.12);color:var(--aw);border:1px solid rgba(240,184,74,.2)}
+@media(max-width:650px){.rotina-grid{grid-template-columns:1fr}.week-grid{grid-template-columns:repeat(7,1fr);gap:3px}.week-day{padding:6px 3px;min-height:60px}.week-day-num{font-size:12px}}
 @media(max-width:650px){
   .sidebar{display:none}
   .botnav{display:flex}
@@ -254,6 +323,98 @@ function GCalBtn({ title, description, dateStr, accounts }) {
               </a>
             );
           })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DatePicker Component
+// ─────────────────────────────────────────────────────────────────────────────
+const MONTHS_PT = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
+const DAYS_PT = ["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
+
+function DatePicker({ value, onChange, placeholder = "Selecionar data e hora", showTime = true }) {
+  const [open, setOpen] = useState(false);
+  const [viewDate, setViewDate] = useState(() => value ? new Date(value) : new Date());
+  const [selDate, setSelDate] = useState(value ? new Date(value) : null);
+  const [time, setTime] = useState(() => {
+    if (value) { const d = new Date(value); return `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`; }
+    return "09:00";
+  });
+  const ref = useRef(null);
+
+  useEffect(() => {
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
+
+  useEffect(() => {
+    if (value) { setSelDate(new Date(value)); const d = new Date(value); setTime(`${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`); }
+    else setSelDate(null);
+  }, [value]);
+
+  const getDays = () => {
+    const year = viewDate.getFullYear(), month = viewDate.getMonth();
+    const first = new Date(year, month, 1).getDay();
+    const total = new Date(year, month + 1, 0).getDate();
+    const days = [];
+    for (let i = 0; i < first; i++) days.push(null);
+    for (let i = 1; i <= total; i++) days.push(new Date(year, month, i));
+    return days;
+  };
+
+  const confirm = (d) => {
+    if (!d) return;
+    const [h, m] = time.split(":").map(Number);
+    const result = new Date(d); result.setHours(h || 0, m || 0, 0, 0);
+    onChange(result.toISOString().slice(0,16));
+    setOpen(false);
+  };
+
+  const today = new Date(); today.setHours(0,0,0,0);
+  const fmtVal = (d) => d ? d.toLocaleDateString("pt-BR", { day:"2-digit", month:"2-digit", year:"numeric" }) + (showTime ? ` ${time}` : "") : null;
+
+  return (
+    <div className="cal-wrap" ref={ref}>
+      <button type="button" className={`cal-input-btn ${open ? "open" : ""}`} onClick={() => setOpen(o => !o)}>
+        <span>📅</span>
+        {selDate ? <span>{fmtVal(selDate)}</span> : <span className="placeholder">{placeholder}</span>}
+        {selDate && <span style={{marginLeft:"auto",fontSize:11,color:"var(--mut)",cursor:"pointer"}} onClick={e=>{e.stopPropagation();onChange("");setSelDate(null);}}>✕</span>}
+      </button>
+      {open && (
+        <div className="cal-popup">
+          <div className="cal-header">
+            <button className="cal-nav" onClick={() => setViewDate(d => new Date(d.getFullYear(), d.getMonth()-1, 1))}>‹</button>
+            <div className="cal-month">{MONTHS_PT[viewDate.getMonth()]} {viewDate.getFullYear()}</div>
+            <button className="cal-nav" onClick={() => setViewDate(d => new Date(d.getFullYear(), d.getMonth()+1, 1))}>›</button>
+          </div>
+          <div className="cal-days-head">{DAYS_PT.map(d => <div key={d} className="cal-dh">{d}</div>)}</div>
+          <div className="cal-days">
+            {getDays().map((d, i) => {
+              if (!d) return <div key={`e${i}`} className="cal-day empty" />;
+              const isToday = d.getTime() === today.getTime();
+              const isSel = selDate && d.toDateString() === selDate.toDateString();
+              return (
+                <div key={i} className={`cal-day ${isToday ? "today" : ""} ${isSel ? "selected" : ""}`}
+                  onClick={() => { setSelDate(d); if (!showTime) confirm(d); }}>
+                  {d.getDate()}
+                </div>
+              );
+            })}
+          </div>
+          {showTime && (
+            <div className="cal-time">
+              <label>Hora</label>
+              <input type="time" value={time} onChange={e => setTime(e.target.value)} />
+            </div>
+          )}
+          {showTime && selDate && (
+            <button className="btn cal-confirm" onClick={() => confirm(selDate)}>Confirmar</button>
+          )}
         </div>
       )}
     </div>
@@ -434,6 +595,7 @@ export default function App() {
     { id: "reunioes",  icon: "🎙", label: "Reuniões",  badge: data.reunioes.length, bc: "bp" },
     { id: "notes",     icon: "◈",  label: "Notas" },
     { id: "chat",      icon: "◎",  label: "Chat IA" },
+    { id: "rotina",    icon: "🌅", label: "Rotina" },
     { id: "config",    icon: "⚙",  label: "Agendas" },
   ];
 
@@ -545,7 +707,7 @@ export default function App() {
       <div className="ph"><div><div className="pt">Lembretes</div><div className="ps">{upcoming} futuro{upcoming !== 1 ? "s" : ""}</div></div></div>
       <div className="frow">
         <div className="fg"><input value={remText} onChange={e => setRemText(e.target.value)} placeholder="Novo lembrete..." /></div>
-        <input type="datetime-local" value={remDate} onChange={e => setRemDate(e.target.value)} style={{ width: "auto" }} />
+        <div className="fg"><DatePicker value={remDate} onChange={setRemDate} placeholder="Data e hora" /></div>
         <button className="btn" onClick={addRem}>+</button>
       </div>
       <div className="cl">
@@ -637,7 +799,7 @@ export default function App() {
     </div>
   );
 
-  const Config = () => (
+  const Config = useCallback(() => (
     <div>
       <div className="ph"><div><div className="pt">Contas Google ⚙</div><div className="ps">Gerencie suas agendas conectadas</div></div></div>
       <div style={{ background: "rgba(91,138,240,.06)", border: "1px solid rgba(91,138,240,.2)", borderRadius: "var(--r10)", padding: "14px 16px", marginBottom: 20, fontSize: 13, lineHeight: 1.6, color: "var(--sub)" }}>
@@ -645,14 +807,28 @@ export default function App() {
       </div>
       <div style={{ marginBottom: 20 }}>
         <div className="frow" style={{ marginBottom: 10 }}>
-          <div className="fg"><input value={newAccName} onChange={e => setNewAccName(e.target.value)} placeholder="Nome da conta (ex: Lhamascred)" /></div>
+          <div className="fg">
+            <input
+              value={newAccName}
+              onChange={e => setNewAccName(e.target.value)}
+              placeholder="Nome da conta (ex: Lhamascred)"
+              autoComplete="off"
+            />
+          </div>
         </div>
         <div className="frow">
-          <div className="fg"><input value={newAccEmail} onChange={e => setNewAccEmail(e.target.value)} placeholder="E-mail Google (ex: nome@gmail.com)" type="email" /></div>
+          <div className="fg">
+            <input
+              value={newAccEmail}
+              onChange={e => setNewAccEmail(e.target.value)}
+              placeholder="E-mail Google (ex: nome@gmail.com)"
+              type="email"
+              autoComplete="off"
+            />
+          </div>
           <button className="btn" onClick={() => {
             if (!newAccName.trim() || !newAccEmail.trim()) return;
-            const colors = ACCOUNT_COLORS;
-            const acc = { id: uid(), name: newAccName.trim(), email: newAccEmail.trim(), color: colors[accounts.length % colors.length] };
+            const acc = { id: uid(), name: newAccName.trim(), email: newAccEmail.trim(), color: ACCOUNT_COLORS[accounts.length % ACCOUNT_COLORS.length] };
             upd("gcalAccounts", [...accounts, acc]);
             setNewAccName(""); setNewAccEmail("");
           }}>+ Adicionar</button>
@@ -672,10 +848,191 @@ export default function App() {
         {!accounts.length && <div className="empty">Nenhuma conta adicionada ainda. Adicione suas contas do Google acima.</div>}
       </div>
     </div>
-  );
+  ), [newAccName, newAccEmail, accounts, upd]);
 
-  const panels = { dash: Dash, cobrancas: Cobrancas, tasks: Tasks, reminders: Reminders, reunioes: Reunioes, notes: Notes, chat: Chat, config: Config };
-  const Panel = panels[tab];
+
+  // ── Rotina ────────────────────────────────────────────────────────────────
+  const todayKey = new Date().toISOString().slice(0,10);
+  const todayStr = new Date().toLocaleDateString("pt-BR", {weekday:"long",day:"2-digit",month:"long"});
+  const WEEK_DAYS_R = ["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
+  const CAT_COLORS = { trabalho:"cat-work", saude:"cat-saude", pessoal:"cat-pessoal", pausa:"cat-pausa" };
+  const CAT_ICONS = { trabalho:"💼", saude:"💪", pessoal:"🌟", pausa:"☕" };
+  const HAB_ICONS_LIST = ["💧","🏃","📚","🧘","🥗","😴","✍️","🎯","🚴","🎵"];
+
+  const [rotinaModal, setRotinaModal] = useState(false);
+  const [habModal, setHabModal] = useState(false);
+  const [rotinaItem, setRotinaItem] = useState({ hora:"08:00", titulo:"", categoria:"trabalho" });
+  const [habItem, setHabItem] = useState({ nome:"", icon:"💧" });
+  const [rotinaTab, setRotinaTab] = useState("hoje");
+
+  const toggleHabito = (id) => {
+    const semana = { ...(data.semana || {}) };
+    const dayHabs = { ...(semana[todayKey] || {}) };
+    dayHabs[id] = !dayHabs[id];
+    semana[todayKey] = dayHabs;
+    upd("semana", semana);
+  };
+
+  const toggleRotina = (id) => {
+    const semana = { ...(data.semana || {}) };
+    const key = "rot_" + todayKey;
+    const dayRot = { ...(semana[key] || {}) };
+    dayRot[id] = !dayRot[id];
+    semana[key] = dayRot;
+    upd("semana", semana);
+  };
+
+  const getNowMinutes = () => { const n = new Date(); return n.getHours()*60+n.getMinutes(); };
+  const timeToMin = (t) => { const [h,m] = (t||"00:00").split(":").map(Number); return h*60+m; };
+
+  const getWeekDates = () => {
+    const today = new Date(); today.setHours(0,0,0,0);
+    const dow = today.getDay();
+    return Array.from({length:7},(_,i)=>{ const d=new Date(today); d.setDate(today.getDate()-dow+i); return d; });
+  };
+
+  const habDone = (id) => !!(data.semana?.[todayKey]?.[id]);
+  const rotDone = (id) => !!(data.semana?.["rot_"+todayKey]?.[id]);
+  const habsFeitos = (data.habitos||[]).filter(h=>habDone(h.id)).length;
+  const rotFeitos = (data.rotina||[]).filter(r=>rotDone(r.id)).length;
+  const totalHabs = (data.habitos||[]).length;
+  const totalRot = (data.rotina||[]).length;
+
+  const getWeekStats = () => {
+    const dates = getWeekDates().map(d=>d.toISOString().slice(0,10));
+    const habDays = dates.filter(d=>(data.habitos||[]).some(h=>data.semana?.[d]?.[h.id])).length;
+    const rotDays = dates.filter(d=>(data.rotina||[]).some(r=>data.semana?.["rot_"+d]?.[r.id])).length;
+    return { habDays, rotDays };
+  };
+
+  const Rotina = () => {
+    const nowMin = getNowMinutes();
+    const sorted = [...(data.rotina||[])].sort((a,b)=>timeToMin(a.hora)-timeToMin(b.hora));
+    const weekStats = getWeekStats();
+    const weekDates = getWeekDates();
+    return (
+      <div>
+        <div className="ph">
+          <div><div className="pt">Rotina 🌅</div><div className="ps">{todayStr}</div></div>
+          <div style={{display:"flex",gap:8}}>
+            <button className="btn bsec bsm" onClick={()=>setHabModal(true)}>+ Hábito</button>
+            <button className="btn bsm" onClick={()=>setRotinaModal(true)}>+ Atividade</button>
+          </div>
+        </div>
+        <div style={{display:"flex",gap:6,marginBottom:20,borderBottom:"1px solid var(--b1)",paddingBottom:12}}>
+          {[{id:"hoje",label:"📋 Hoje"},{id:"semana",label:"📅 Semana"},{id:"relatorio",label:"📊 Relatório"}].map(t=>(
+            <button key={t.id} className={"btn bsm "+(rotinaTab===t.id?"":"bsec")} onClick={()=>setRotinaTab(t.id)}>{t.label}</button>
+          ))}
+        </div>
+        {rotinaTab==="hoje" && (
+          <div className="rotina-grid">
+            <div>
+              <div className="rotina-block-title">⏱ Linha do tempo</div>
+              {totalRot>0&&(<div style={{marginBottom:14}}><div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"var(--mut)",marginBottom:4}}><span>Progresso</span><span style={{fontFamily:"Fira Code,monospace"}}>{rotFeitos}/{totalRot}</span></div><div className="prog-bar"><div className="prog-fill" style={{width:(totalRot?rotFeitos/totalRot*100:0)+"%"}}/></div></div>)}
+              <div className="timeline">
+                {sorted.map(item=>{
+                  const isDone=rotDone(item.id);
+                  const isCur=timeToMin(item.hora)<=nowMin&&timeToMin(item.hora)>=nowMin-60;
+                  return(<div key={item.id} className={"tl-item"+(isDone?" done-tl":"")+(isCur&&!isDone?" current":"")} onClick={()=>toggleRotina(item.id)}>
+                    <div className="tl-time">{item.hora}</div><div className="tl-dot"/>
+                    <div className="tl-title">{item.titulo}</div>
+                    <span className={"tl-cat "+(CAT_COLORS[item.categoria]||"cat-work")}>{CAT_ICONS[item.categoria]}</span>
+                    <button className="ib ibdel" style={{width:20,height:20,fontSize:10}} onClick={e=>{e.stopPropagation();upd("rotina",(data.rotina||[]).filter(r=>r.id!==item.id))}}>✕</button>
+                  </div>);
+                })}
+                {!sorted.length&&<div className="empty">Nenhuma atividade ainda.</div>}
+              </div>
+            </div>
+            <div>
+              <div className="rotina-block-title">✦ Hábitos de hoje</div>
+              {totalHabs>0&&(<div style={{marginBottom:14}}><div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"var(--mut)",marginBottom:4}}><span>Concluídos</span><span style={{fontFamily:"Fira Code,monospace"}}>{habsFeitos}/{totalHabs}</span></div><div className="prog-bar"><div className="prog-fill" style={{width:(totalHabs?habsFeitos/totalHabs*100:0)+"%",background:"linear-gradient(90deg,var(--ag),var(--ac))"}}/></div></div>)}
+              <div className="hab-grid">
+                {(data.habitos||[]).map(h=>(<div key={h.id} className={"hab-card"+(habDone(h.id)?" done-h":"")} onClick={()=>toggleHabito(h.id)}>
+                  {habDone(h.id)&&<div className="hab-check">✓</div>}
+                  <div className="hab-icon">{h.icon}</div>
+                  <div className="hab-name">{h.nome}</div>
+                </div>))}
+                {!(data.habitos||[]).length&&<div className="empty">Nenhum hábito ainda.</div>}
+              </div>
+            </div>
+          </div>
+        )}
+        {rotinaTab==="semana"&&(
+          <div>
+            <div className="rotina-block-title" style={{marginBottom:12}}>📅 Esta semana</div>
+            <div className="week-grid">
+              {weekDates.map((d,i)=>{
+                const key=d.toISOString().slice(0,10);
+                const isToday=key===todayKey;
+                const rots=(data.rotina||[]).filter(r=>data.semana?.["rot_"+key]?.[r.id]);
+                const habs=(data.habitos||[]).filter(h=>data.semana?.[key]?.[h.id]);
+                return(<div key={key} className={"week-day"+(isToday?" today-w":"")+((rots.length||habs.length)?" has-items":"")}>
+                  <div className="week-day-name">{WEEK_DAYS_R[i]}</div>
+                  <div className="week-day-num">{d.getDate()}</div>
+                  {rots.slice(0,2).map(r=><div key={r.id} className="week-dot" style={{background:"var(--ac)"}}/>)}
+                  {habs.slice(0,2).map(h=><div key={h.id} className="week-dot" style={{background:"var(--ag)"}}/>)}
+                </div>);
+              })}
+            </div>
+            <div style={{marginTop:12,display:"flex",gap:12,fontSize:11,color:"var(--mut)"}}>
+              <span>🔵 Atividades</span><span>🟢 Hábitos</span>
+            </div>
+          </div>
+        )}
+        {rotinaTab==="relatorio"&&(
+          <div>
+            <div className="rotina-block-title" style={{marginBottom:12}}>📊 Relatório semanal</div>
+            <div className="relatorio">
+              <div className="rel-card"><div className="rel-num" style={{color:"var(--ac)"}}>{getWeekStats().rotDays}</div><div className="rel-lbl">Dias com atividades</div></div>
+              <div className="rel-card"><div className="rel-num" style={{color:"var(--ag)"}}>{getWeekStats().habDays}</div><div className="rel-lbl">Dias com hábitos</div></div>
+              <div className="rel-card"><div className="rel-num" style={{color:"var(--ap)"}}>{totalHabs}</div><div className="rel-lbl">Hábitos ativos</div></div>
+              <div className="rel-card"><div className="rel-num" style={{color:"var(--aw)"}}>{totalRot}</div><div className="rel-lbl">Atividades na rotina</div></div>
+            </div>
+            <div style={{marginTop:20}}>
+              <div className="rotina-block-title" style={{marginBottom:10}}>Consistência por hábito (7 dias)</div>
+              <div className="cl">
+                {(data.habitos||[]).map(h=>{
+                  const wk=getWeekDates().map(d=>d.toISOString().slice(0,10));
+                  const cnt=wk.filter(d=>data.semana?.[d]?.[h.id]).length;
+                  return(<div key={h.id} className="card" style={{padding:"10px 14px"}}>
+                    <span style={{fontSize:18}}>{h.icon}</span>
+                    <div className="cb"><div className="ct">{h.nome}</div><div className="prog-bar" style={{marginTop:6}}><div className="prog-fill" style={{width:(cnt/7*100)+"%",background:"linear-gradient(90deg,var(--ag),var(--ac))"}}/></div></div>
+                    <div style={{fontFamily:"Fira Code,monospace",fontSize:11,color:"var(--ag)",flexShrink:0}}>{cnt}/7</div>
+                    <button className="ib ibdel" onClick={()=>upd("habitos",(data.habitos||[]).filter(hh=>hh.id!==h.id))}>✕</button>
+                  </div>);
+                })}
+                {!(data.habitos||[]).length&&<div className="empty">Adicione hábitos para ver o relatório.</div>}
+              </div>
+            </div>
+          </div>
+        )}
+        {rotinaModal&&(<div className="mov" onClick={()=>setRotinaModal(false)}><div className="mod" onClick={e=>e.stopPropagation()}>
+          <div className="mh"><div className="mtt">Nova atividade</div><button className="ib ibdel" onClick={()=>setRotinaModal(false)}>✕</button></div>
+          <div><label>Horário</label><input type="time" value={rotinaItem.hora} onChange={e=>setRotinaItem(x=>({...x,hora:e.target.value}))}/></div>
+          <div><label>Atividade *</label><input value={rotinaItem.titulo} onChange={e=>setRotinaItem(x=>({...x,titulo:e.target.value}))} placeholder="Ex: Academia, Reunião, Almoço..."/></div>
+          <div><label>Categoria</label><select value={rotinaItem.categoria} onChange={e=>setRotinaItem(x=>({...x,categoria:e.target.value}))}><option value="trabalho">💼 Trabalho</option><option value="saude">💪 Saúde</option><option value="pessoal">🌟 Pessoal</option><option value="pausa">☕ Pausa</option></select></div>
+          <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+            <button className="btn bsec bsm" onClick={()=>setRotinaModal(false)}>Cancelar</button>
+            <button className="btn bsm" onClick={()=>{if(!rotinaItem.titulo.trim())return;upd("rotina",[...(data.rotina||[]),{id:uid(),...rotinaItem}]);setRotinaItem({hora:"08:00",titulo:"",categoria:"trabalho"});setRotinaModal(false);}}>Salvar</button>
+          </div>
+        </div></div>)}
+        {habModal&&(<div className="mov" onClick={()=>setHabModal(false)}><div className="mod" onClick={e=>e.stopPropagation()}>
+          <div className="mh"><div className="mtt">Novo hábito</div><button className="ib ibdel" onClick={()=>setHabModal(false)}>✕</button></div>
+          <div><label>Nome *</label><input value={habItem.nome} onChange={e=>setHabItem(x=>({...x,nome:e.target.value}))} placeholder="Ex: Beber água, Exercício, Leitura..."/></div>
+          <div><label>Ícone</label><div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:4}}>
+            {HAB_ICONS_LIST.map(ic=>(<div key={ic} onClick={()=>setHabItem(x=>({...x,icon:ic}))} style={{width:38,height:38,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,cursor:"pointer",background:habItem.icon===ic?"var(--s4)":"var(--s2)",border:"1px solid "+(habItem.icon===ic?"var(--ac)":"var(--b1)")}}>{ic}</div>))}
+          </div></div>
+          <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+            <button className="btn bsec bsm" onClick={()=>setHabModal(false)}>Cancelar</button>
+            <button className="btn bsm" onClick={()=>{if(!habItem.nome.trim())return;upd("habitos",[...(data.habitos||[]),{id:uid(),...habItem}]);setHabItem({nome:"",icon:"💧"});setHabModal(false);}}>Salvar</button>
+          </div>
+        </div></div>)}
+      </div>
+    );
+  };
+
+  const panels = { dash: Dash, cobrancas: Cobrancas, tasks: Tasks, reminders: Reminders, reunioes: Reunioes, notes: Notes, chat: Chat, rotina: Rotina, config: Config };
+  const Panel = panels[tab] || Dash;
 
   return (
     <>
@@ -715,7 +1072,7 @@ export default function App() {
             <div><label>Nome da pessoa *</label><input value={cbPessoa} onChange={e => setCbPessoa(e.target.value)} placeholder="Ex: João Silva" /></div>
             <div><label>O que ela deve fazer / entregar *</label><textarea value={cbTarefa} onChange={e => setCbTarefa(e.target.value)} placeholder="Ex: Entregar relatório mensal" style={{ minHeight: 70 }} /></div>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <div style={{ flex: 1, minWidth: 140 }}><label>Data combinada</label><input type="datetime-local" value={cbDate} onChange={e => setCbDate(e.target.value)} /></div>
+              <div style={{ flex: 1, minWidth: 140 }}><label>Data combinada</label><DatePicker value={cbDate} onChange={setCbDate} placeholder="Selecionar data" /></div>
               <div style={{ flex: 1, minWidth: 110 }}><label>Prioridade</label><select value={cbPrio} onChange={e => setCbPrio(e.target.value)}><option value="urgente">🔴 Urgente</option><option value="normal">🟢 Normal</option></select></div>
               <div style={{ flex: 1, minWidth: 110 }}><label>Avisar X dias antes</label><input type="number" min={0} max={30} value={cbDias} onChange={e => setCbDias(e.target.value)} /></div>
             </div>
