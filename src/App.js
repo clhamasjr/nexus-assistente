@@ -1,12 +1,15 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-// ── Persistence (localStorage para persistir entre sessões) ───────────────────
+// ── Supabase ──────────────────────────────────────────────────────────────────
+const SUPA_URL = "https://mbcngigdnlnojsklydfi.supabase.co";
+const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1iY25naWdkbmxub2pza2x5ZGZpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI5ODc4NDcsImV4cCI6MjA4ODU2Mzg0N30.LRhTQjOR8UQtA_Dk1uQjWNIDVY1SCvtCHKzQ-u2yl5k";
+const sb = createClient(SUPA_URL, SUPA_KEY);
+
+// ── Persistence (fallback localStorage) ──────────────────────────────────────
 const BLANK = { tasks: [], reminders: [], notes: [], messages: [], cobrancas: [], reunioes: [], gcalAccounts: [], rotina: [], habitos: [], semana: {} };
-const load = () => {
-  try { const s = localStorage.getItem("nexus_v1"); return s ? { ...BLANK, ...JSON.parse(s) } : BLANK; }
-  catch { return BLANK; }
-};
-const save = (d) => { try { localStorage.setItem("nexus_v1", JSON.stringify(d)); } catch {} };
+const loadLocal = () => { try { const s = localStorage.getItem("nexus_v1"); return s ? { ...BLANK, ...JSON.parse(s) } : BLANK; } catch { return BLANK; } };
+const saveLocal = (d) => { try { localStorage.setItem("nexus_v1", JSON.stringify(d)); } catch {} };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -422,10 +425,138 @@ function DatePicker({ value, onChange, placeholder = "Selecionar data e hora", s
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ── Login Screen ─────────────────────────────────────────────────────────────
+function LoginScreen({ onLogin }) {
+  const [email, setEmail] = useState("");
+  const [senha, setSenha] = useState("");
+  const [erro, setErro] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const entrar = async () => {
+    if (!email.trim() || !senha.trim()) return;
+    setLoading(true); setErro("");
+    const { error } = await sb.auth.signInWithPassword({ email: email.trim(), password: senha });
+    if (error) setErro("E-mail ou senha incorretos.");
+    setLoading(false);
+  };
+
+  return (
+    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",padding:20}}>
+      <div style={{background:"var(--s1)",border:"1px solid var(--b1)",borderRadius:20,padding:"40px 36px",width:"100%",maxWidth:380}}>
+        <div style={{textAlign:"center",marginBottom:32}}>
+          <div style={{fontSize:32,marginBottom:8}}>✦</div>
+          <div style={{fontSize:26,fontWeight:800,letterSpacing:-1}}>Nexus</div>
+          <div style={{fontSize:13,color:"var(--sub)",marginTop:4}}>Seu assistente pessoal</div>
+        </div>
+        {erro && <div style={{background:"rgba(240,107,107,.1)",border:"1px solid rgba(240,107,107,.3)",borderRadius:10,padding:"10px 14px",fontSize:13,color:"var(--ar)",marginBottom:16}}>{erro}</div>}
+        <div style={{marginBottom:14}}>
+          <label style={{fontSize:11,color:"var(--sub)",fontFamily:"Fira Code,monospace",letterSpacing:.5,textTransform:"uppercase"}}>E-mail</label>
+          <input value={email} onChange={e=>setEmail(e.target.value)} onKeyDown={e=>e.key==="Enter"&&entrar()} placeholder="seu@email.com" type="email" style={{marginTop:6,width:"100%"}} autoComplete="email" />
+        </div>
+        <div style={{marginBottom:24}}>
+          <label style={{fontSize:11,color:"var(--sub)",fontFamily:"Fira Code,monospace",letterSpacing:.5,textTransform:"uppercase"}}>Senha</label>
+          <input value={senha} onChange={e=>setSenha(e.target.value)} onKeyDown={e=>e.key==="Enter"&&entrar()} placeholder="••••••••" type="password" style={{marginTop:6,width:"100%"}} autoComplete="current-password" />
+        </div>
+        <button className="btn" style={{width:"100%",padding:"11px",fontSize:14,fontWeight:700}} onClick={entrar} disabled={loading}>
+          {loading ? "Entrando..." : "Entrar →"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
-  const [data, setData] = useState(load);
+  const [session, setSession] = useState(null);
+  const [perfil, setPerfil] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [data, setData] = useState(loadLocal);
+  const [dbReady, setDbReady] = useState(false);
   const [tab, setTab] = useState("dash");
   const [clock, setClock] = useState(clk());
+
+  // Auth listener
+  useEffect(() => {
+    sb.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setAuthLoading(false);
+    });
+    const { data: { subscription } } = sb.auth.onAuthStateChange((_e, session) => {
+      setSession(session);
+      if (!session) { setPerfil(null); setDbReady(false); }
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // Load profile and data from Supabase when logged in
+  useEffect(() => {
+    if (!session) return;
+    const userId = session.user.id;
+    const load = async () => {
+      const [
+        { data: prof },
+        { data: tasks },
+        { data: reminders },
+        { data: cobrancas },
+        { data: notes },
+        { data: reunioes },
+        { data: rotina },
+        { data: habitos },
+        { data: gcal },
+        { data: registros },
+      ] = await Promise.all([
+        sb.from("profiles").select("*").eq("id", userId).single(),
+        sb.from("tasks").select("*").eq("user_id", userId).order("created_at", { ascending: false }),
+        sb.from("reminders").select("*").eq("user_id", userId).order("date"),
+        sb.from("cobrancas").select("*").eq("user_id", userId).order("created_at", { ascending: false }),
+        sb.from("notes").select("*").eq("user_id", userId).order("updated_at", { ascending: false }),
+        sb.from("reunioes").select("*").eq("user_id", userId).order("created_at", { ascending: false }),
+        sb.from("rotina").select("*").eq("user_id", userId),
+        sb.from("habitos").select("*").eq("user_id", userId),
+        sb.from("gcal_accounts").select("*").eq("user_id", userId),
+        sb.from("registros_diarios").select("*").eq("user_id", userId),
+      ]);
+      setPerfil(prof);
+      // Build semana from registros_diarios
+      const semana = {};
+      (registros||[]).forEach(r => {
+        if (r.tipo === "habito") { if (!semana[r.data]) semana[r.data] = {}; semana[r.data][r.item_id] = r.feito; }
+        if (r.tipo === "rotina") { const k = "rot_"+r.data; if (!semana[k]) semana[k] = {}; semana[k][r.item_id] = r.feito; }
+      });
+      setData(d => ({
+        ...d,
+        tasks: tasks||[], reminders: reminders||[], cobrancas: cobrancas||[],
+        notes: notes||[], reunioes: reunioes||[], rotina: rotina||[],
+        habitos: habitos||[], gcalAccounts: gcal||[], semana,
+      }));
+      setDbReady(true);
+    };
+    load();
+  }, [session]);
+
+  // Sync helpers
+  const dbAdd = useCallback(async (table, obj) => {
+    if (!session) return obj;
+    const { data: row } = await sb.from(table).insert({ ...obj, user_id: session.user.id }).select().single();
+    return row || obj;
+  }, [session]);
+
+  const dbUpdate = useCallback(async (table, id, obj) => {
+    if (!session) return;
+    await sb.from(table).update(obj).eq("id", id);
+  }, [session]);
+
+  const dbDelete = useCallback(async (table, id) => {
+    if (!session) return;
+    await sb.from(table).delete().eq("id", id);
+  }, [session]);
+
+  const dbToggleRegistro = useCallback(async (itemId, tipo, data, feito) => {
+    if (!session) return;
+    await sb.from("registros_diarios").upsert(
+      { user_id: session.user.id, item_id: itemId, tipo, data, feito },
+      { onConflict: "user_id,item_id,data" }
+    );
+  }, [session]);
 
   // Cobrança form
   const [cbModal, setCbModal] = useState(null);
@@ -472,7 +603,7 @@ export default function App() {
   // Resumindo reunião
   const [resumindo, setResumindo] = useState(false);
 
-  useEffect(() => { save(data); }, [data]);
+  useEffect(() => { saveLocal(data); }, [data]);
   useEffect(() => { const t = setInterval(() => setClock(clk()), 30000); return () => clearInterval(t); }, []);
   useEffect(() => { if (tab === "chat") msgsEnd.current?.scrollIntoView({ behavior: "smooth" }); }, [data.messages, tab, aiLoading]);
 
@@ -1034,6 +1165,19 @@ export default function App() {
   const panels = { dash: Dash, cobrancas: Cobrancas, tasks: Tasks, reminders: Reminders, reunioes: Reunioes, notes: Notes, chat: Chat, rotina: Rotina, config: Config };
   const Panel = panels[tab] || Dash;
 
+  // Auth gate
+  if (authLoading) return (
+    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)"}}>
+      <style>{CSS}</style>
+      <div style={{textAlign:"center",color:"var(--sub)"}}>
+        <div style={{fontSize:32,marginBottom:12}}>✦</div>
+        <div style={{fontFamily:"Fira Code,monospace",fontSize:13}}>carregando...</div>
+      </div>
+    </div>
+  );
+
+  if (!session) return (<><style>{CSS}</style><LoginScreen /></>);
+
   return (
     <>
       <style>{CSS}</style>
@@ -1041,7 +1185,11 @@ export default function App() {
         <header className="topbar">
           <div className="logo">✦ Nexus</div>
           <div className="clk">{clock}</div>
-          <button className="expbtn" onClick={exportData}>⬇ Exportar</button>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            {perfil && <span style={{fontFamily:"Fira Code,monospace",fontSize:11,color:"var(--sub)",maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{perfil.nome}</span>}
+            <button className="expbtn" onClick={exportData} title="Exportar dados">⬇</button>
+            <button className="expbtn" onClick={()=>sb.auth.signOut()} title="Sair" style={{color:"var(--ar)"}}>⏻</button>
+          </div>
         </header>
         <div className="layout">
           <nav className="sidebar">
