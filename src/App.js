@@ -8,6 +8,46 @@ const SUPA_URL = "https://mbcngigdnlnojsklydfi.supabase.co";
 const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1iY25naWdkbmxub2pza2x5ZGZpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI5ODc4NDcsImV4cCI6MjA4ODU2Mzg0N30.LRhTQjOR8UQtA_Dk1uQjWNIDVY1SCvtCHKzQ-u2yl5k";
 const sb = createClient(SUPA_URL, SUPA_KEY);
 
+// ── Google OAuth ──────────────────────────────────────────────────────────────
+const GCAL_CLIENT_ID = "188108397931-rb06rvfof53tsbhd9c3sjokduoe2538n.apps.googleusercontent.com";
+const GCAL_SCOPE = "https://www.googleapis.com/auth/calendar";
+
+const loadGapi = () => new Promise((resolve) => {
+  if (window.gapi) { resolve(window.gapi); return; }
+  const s = document.createElement("script");
+  s.src = "https://apis.google.com/js/api.js";
+  s.onload = () => window.gapi.load("client:auth2", async () => {
+    await window.gapi.client.init({ clientId: GCAL_CLIENT_ID, scope: GCAL_SCOPE, discoveryDocs: ["https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest"] });
+    resolve(window.gapi);
+  });
+  document.head.appendChild(s);
+});
+
+const gcalSignIn = async () => {
+  const gapi = await loadGapi();
+  if (!gapi.auth2.getAuthInstance().isSignedIn.get()) await gapi.auth2.getAuthInstance().signIn();
+  return gapi;
+};
+
+const gcalListEvents = async (calendarId="primary", maxResults=20) => {
+  const gapi = await gcalSignIn();
+  const now = new Date().toISOString();
+  const res = await gapi.client.calendar.events.list({ calendarId, timeMin: now, maxResults, singleEvents: true, orderBy: "startTime" });
+  return res.result.items || [];
+};
+
+const gcalListCalendars = async () => {
+  const gapi = await gcalSignIn();
+  const res = await gapi.client.calendar.calendarList.list();
+  return res.result.items || [];
+};
+
+const gcalCreateEvent = async (calendarId, title, description, startISO, endISO) => {
+  const gapi = await gcalSignIn();
+  const res = await gapi.client.calendar.events.insert({ calendarId, resource: { summary: title, description, start: { dateTime: startISO }, end: { dateTime: endISO } } });
+  return res.result;
+};
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const BLANK = { tasks:[], reminders:[], notes:[], messages:[], cobrancas:[], reunioes:[], gcalAccounts:[], rotina:[], habitos:[], semana:{} };
 const uid = () => Math.random().toString(36).slice(2,10);
@@ -283,6 +323,29 @@ label{font-size:12px;font-weight:600;color:var(--sub);display:block;margin-botto
 
 //
 
+
+/* Google Calendar Panel */
+.gcal-panel{display:grid;grid-template-columns:280px 1fr;gap:16px;height:calc(100vh - 200px)}
+.gcal-sidebar{display:flex;flex-direction:column;gap:8px;overflow-y:auto}
+.gcal-cal-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:var(--r10);cursor:pointer;border:1px solid transparent;transition:all .15s}
+.gcal-cal-item:hover{background:var(--s2);border-color:var(--b1)}
+.gcal-cal-item.sel{background:var(--s2);border-color:var(--ac)}
+.gcal-cal-dot{width:10px;height:10px;min-width:10px;border-radius:50%}
+.gcal-cal-name{font-size:13px;font-weight:600;flex:1}
+.gcal-cal-count{font-family:'Fira Code',monospace;font-size:10px;color:var(--mut)}
+.gcal-events{overflow-y:auto;display:flex;flex-direction:column;gap:8px}
+.gcal-event{background:var(--s2);border:1px solid var(--b1);border-radius:var(--r10);padding:12px 14px;border-left:3px solid var(--ac);transition:all .15s}
+.gcal-event:hover{border-color:var(--ac);background:var(--s3)}
+.gcal-event-title{font-size:13px;font-weight:600;margin-bottom:4px}
+.gcal-event-time{font-family:'Fira Code',monospace;font-size:11px;color:var(--sub)}
+.gcal-event-loc{font-size:11px;color:var(--mut);margin-top:3px}
+.gcal-signin-box{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:60px 20px;text-align:center}
+.gcal-connect-btn{display:flex;align-items:center;gap:10px;background:#fff;color:#333;border:none;border-radius:10px;padding:12px 20px;font-size:14px;font-weight:600;cursor:pointer;transition:all .2s;box-shadow:0 2px 8px rgba(0,0,0,.3)}
+.gcal-connect-btn:hover{transform:translateY(-1px);box-shadow:0 4px 16px rgba(0,0,0,.4)}
+.gcal-new-event{background:var(--s2);border:1px solid var(--b1);border-radius:var(--r14);padding:16px;margin-bottom:16px}
+.gcal-new-title{font-size:12px;font-weight:700;color:var(--sub);letter-spacing:.5px;text-transform:uppercase;margin-bottom:12px}
+@media(max-width:650px){.gcal-panel{grid-template-columns:1fr;height:auto}}
+
 // ── Account Colors ────────────────────────────────────────────────────────────
 const ACCOUNT_COLORS = ["#5b8af0","#3dd68c","#e06bf0","#f0b84a","#f06b6b"];
 
@@ -532,29 +595,168 @@ function Chat() {
 }
 
 function Config() {
-  const {data,upd,accounts,newAccName,setNewAccName,newAccEmail,setNewAccEmail}=useContext(NexusCtx);
+  const {data,upd}=useContext(NexusCtx);
+  const [gcalSigned,setGcalSigned]=useState(false);
+  const [gcalUser,setGcalUser]=useState(null);
+  const [calendars,setCalendars]=useState([]);
+  const [selCal,setSelCal]=useState(null);
+  const [events,setEvents]=useState([]);
+  const [loadingCals,setLoadingCals]=useState(false);
+  const [loadingEvts,setLoadingEvts]=useState(false);
+  const [gapiReady,setGapiReady]=useState(false);
+  const [newEvt,setNewEvt]=useState({title:"",date:"",cal:""});
+  const [creatingEvt,setCreatingEvt]=useState(false);
+  const [configTab,setConfigTab]=useState("agenda");
+
+  // Load gapi on mount
+  useEffect(()=>{
+    loadGapi().then(gapi=>{
+      setGapiReady(true);
+      const auth=gapi.auth2.getAuthInstance();
+      if(auth.isSignedIn.get()){
+        setGcalSigned(true);
+        setGcalUser(auth.currentUser.get().getBasicProfile());
+        loadCalendars();
+      }
+      auth.isSignedIn.listen(signed=>{
+        setGcalSigned(signed);
+        if(signed){setGcalUser(auth.currentUser.get().getBasicProfile());loadCalendars();}
+        else{setGcalUser(null);setCalendars([]);setEvents([]);}
+      });
+    }).catch(()=>{});
+  },[]);
+
+  const loadCalendars=async()=>{
+    setLoadingCals(true);
+    try{
+      const cals=await gcalListCalendars();
+      setCalendars(cals);
+      if(cals.length>0){setSelCal(cals[0].id);loadEvents(cals[0].id);}
+    }catch(e){console.error(e);}
+    setLoadingCals(false);
+  };
+
+  const loadEvents=async(calId)=>{
+    setLoadingEvts(true);
+    try{ const evts=await gcalListEvents(calId,30); setEvents(evts); }
+    catch(e){console.error(e);}
+    setLoadingEvts(false);
+  };
+
+  const handleSignIn=async()=>{
+    try{ await gcalSignIn(); }catch(e){alert("Erro ao conectar: "+e.message);}
+  };
+
+  const handleSignOut=async()=>{
+    const gapi=await loadGapi();
+    await gapi.auth2.getAuthInstance().signOut();
+  };
+
+  const handleCreateEvent=async()=>{
+    if(!newEvt.title.trim()||!newEvt.date||!newEvt.cal)return;
+    setCreatingEvt(true);
+    try{
+      const start=new Date(newEvt.date);
+      const end=new Date(start.getTime()+3600000);
+      await gcalCreateEvent(newEvt.cal,newEvt.title,"Criado pelo Nexus",start.toISOString(),end.toISOString());
+      setNewEvt({title:"",date:"",cal:newEvt.cal});
+      loadEvents(selCal||newEvt.cal);
+      alert("Evento criado com sucesso! ✅");
+    }catch(e){alert("Erro ao criar evento: "+e.message);}
+    setCreatingEvt(false);
+  };
+
+  const fmtEvtTime=(evt)=>{
+    if(evt.start?.dateTime) return new Date(evt.start.dateTime).toLocaleString("pt-BR",{weekday:"short",day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"});
+    if(evt.start?.date) return new Date(evt.start.date+"T00:00:00").toLocaleDateString("pt-BR",{weekday:"short",day:"2-digit",month:"long"});
+    return "—";
+  };
+
+  const calColor=(cal)=>cal.backgroundColor||"#5b8af0";
+
+  // Sync calendars to Nexus accounts
+  const syncToNexus=()=>{
+    const accs=calendars.map((c,i)=>({id:c.id,name:c.summary,email:c.id,color:c.backgroundColor||ACCOUNT_COLORS[i%ACCOUNT_COLORS.length]}));
+    upd("gcalAccounts",accs);
+    alert(`${accs.length} agendas sincronizadas com o Nexus! ✅`);
+  };
+
   return(<div>
-    <div className="ph"><div><div className="pt">Contas Google ⚙</div><div className="ps">Gerencie suas agendas conectadas</div></div></div>
-    <div style={{background:"rgba(91,138,240,.06)",border:"1px solid rgba(91,138,240,.2)",borderRadius:"var(--r10)",padding:"14px 16px",marginBottom:20,fontSize:13,lineHeight:1.6,color:"var(--sub)"}}>
-      📅 Adicione suas contas do Google abaixo. O botão 📅 em lembretes e cobranças vai mostrar um menu para escolher em qual agenda criar o evento.
+    <div className="ph">
+      <div><div className="pt">Google Agenda 📅</div><div className="ps">{gcalSigned&&gcalUser?gcalUser.getEmail():"Conecte sua conta Google"}</div></div>
+      {gcalSigned&&<div style={{display:"flex",gap:8}}>
+        <button className="btn bsec bsm" onClick={syncToNexus} title="Sincronizar agendas com o Nexus">↻ Sync</button>
+        <button className="btn bdng bsm" onClick={handleSignOut}>Desconectar</button>
+      </div>}
     </div>
-    <div style={{marginBottom:20}}>
-      <div className="frow" style={{marginBottom:10}}>
-        <div className="fg"><input value={newAccName} onChange={e=>setNewAccName(e.target.value)} placeholder="Nome da conta (ex: Lhamascred)" autoComplete="off"/></div>
+
+    {!gcalSigned&&(<div className="gcal-signin-box">
+      <div style={{fontSize:48}}>📅</div>
+      <div style={{fontSize:16,fontWeight:700}}>Conecte sua conta Google</div>
+      <div style={{fontSize:13,color:"var(--sub)",maxWidth:320}}>Visualize e crie eventos em todas as suas agendas diretamente do Nexus.</div>
+      {gapiReady
+        ?<button className="gcal-connect-btn" onClick={handleSignIn}>
+          <svg width="20" height="20" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.35-8.16 2.35-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/><path fill="none" d="M0 0h48v48H0z"/></svg>
+          Entrar com Google
+        </button>
+        :<div style={{color:"var(--mut)",fontSize:13}}>Carregando...</div>
+      }
+    </div>)}
+
+    {gcalSigned&&(<div>
+      {/* Tabs */}
+      <div style={{display:"flex",gap:6,marginBottom:20,borderBottom:"1px solid var(--b1)",paddingBottom:12}}>
+        {[{id:"agenda",label:"📅 Agenda"},{id:"novo",label:"➕ Novo evento"}].map(t=>(<button key={t.id} className={"btn bsm "+(configTab===t.id?"":"bsec")} onClick={()=>setConfigTab(t.id)}>{t.label}</button>))}
       </div>
-      <div className="frow">
-        <div className="fg"><input value={newAccEmail} onChange={e=>setNewAccEmail(e.target.value)} placeholder="E-mail Google (ex: nome@gmail.com)" type="email" autoComplete="off"/></div>
-        <button className="btn" onClick={()=>{ if(!newAccName.trim()||!newAccEmail.trim())return; const acc={id:uid(),name:newAccName.trim(),email:newAccEmail.trim(),color:ACCOUNT_COLORS[accounts.length%ACCOUNT_COLORS.length]}; upd("gcalAccounts",[...accounts,acc]); setNewAccName("");setNewAccEmail(""); }}>+ Adicionar</button>
-      </div>
-    </div>
-    <div className="cl">
-      {accounts.map((acc,i)=>(<div key={acc.id} className="acc-card">
-        <div className="acc-dot" style={{background:acc.color||ACCOUNT_COLORS[i%ACCOUNT_COLORS.length]}}/>
-        <div className="acc-info"><div className="acc-name">{acc.name||acc.nome}</div><div className="acc-email">{acc.email}</div></div>
-        <button className="ib ibdel" onClick={()=>upd("gcalAccounts",accounts.filter(a=>a.id!==acc.id))}>✕</button>
-      </div>))}
-      {!accounts.length&&<div className="empty">Nenhuma conta adicionada ainda.</div>}
-    </div>
+
+      {configTab==="agenda"&&(<div className="gcal-panel">
+        {/* Calendar list */}
+        <div className="gcal-sidebar">
+          <div style={{fontSize:11,fontWeight:700,color:"var(--mut)",letterSpacing:.5,textTransform:"uppercase",marginBottom:4}}>Suas agendas</div>
+          {loadingCals&&<div style={{color:"var(--mut)",fontSize:13}}>Carregando...</div>}
+          {calendars.map(cal=>(<div key={cal.id} className={"gcal-cal-item"+(selCal===cal.id?" sel":"")} onClick={()=>{setSelCal(cal.id);loadEvents(cal.id);}}>
+            <div className="gcal-cal-dot" style={{background:calColor(cal)}}/>
+            <div className="gcal-cal-name">{cal.summary}</div>
+          </div>))}
+        </div>
+        {/* Events list */}
+        <div>
+          <div style={{fontSize:11,fontWeight:700,color:"var(--mut)",letterSpacing:.5,textTransform:"uppercase",marginBottom:12}}>
+            Próximos eventos {selCal&&calendars.find(c=>c.id===selCal)&&`— ${calendars.find(c=>c.id===selCal).summary}`}
+          </div>
+          {loadingEvts&&<div style={{color:"var(--mut)",fontSize:13}}>Carregando eventos...</div>}
+          <div className="gcal-events">
+            {events.map(evt=>(<div key={evt.id} className="gcal-event" style={{borderLeftColor:selCal&&calendars.find(c=>c.id===selCal)?calColor(calendars.find(c=>c.id===selCal)):"var(--ac)"}}>
+              <div className="gcal-event-title">{evt.summary||"(Sem título)"}</div>
+              <div className="gcal-event-time">{fmtEvtTime(evt)}</div>
+              {evt.location&&<div className="gcal-event-loc">📍 {evt.location}</div>}
+              {evt.description&&<div style={{fontSize:11,color:"var(--mut)",marginTop:4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{evt.description}</div>}
+            </div>))}
+            {!loadingEvts&&!events.length&&<div className="empty">Nenhum evento próximo nesta agenda.</div>}
+          </div>
+        </div>
+      </div>)}
+
+      {configTab==="novo"&&(<div style={{maxWidth:480}}>
+        <div className="gcal-new-event">
+          <div className="gcal-new-title">➕ Criar novo evento</div>
+          <div style={{display:"flex",flexDirection:"column",gap:12}}>
+            <div><label>Agenda</label>
+              <select value={newEvt.cal} onChange={e=>setNewEvt(x=>({...x,cal:e.target.value}))}>
+                <option value="">Selecione uma agenda...</option>
+                {calendars.filter(c=>c.accessRole==="owner"||c.accessRole==="writer").map(c=>(<option key={c.id} value={c.id}>{c.summary}</option>))}
+              </select>
+            </div>
+            <div><label>Título do evento *</label><input value={newEvt.title} onChange={e=>setNewEvt(x=>({...x,title:e.target.value}))} placeholder="Ex: Reunião com equipe"/></div>
+            <div><label>Data e hora *</label><DatePicker value={newEvt.date} onChange={v=>setNewEvt(x=>({...x,date:v}))} placeholder="Selecionar data e hora"/></div>
+            <button className="btn" style={{marginTop:4}} onClick={handleCreateEvent} disabled={creatingEvt||!newEvt.title||!newEvt.date||!newEvt.cal}>{creatingEvt?"Criando...":"Criar evento no Google Agenda"}</button>
+          </div>
+        </div>
+        <div style={{background:"rgba(91,138,240,.06)",border:"1px solid rgba(91,138,240,.2)",borderRadius:"var(--r10)",padding:"14px 16px",fontSize:13,color:"var(--sub)",lineHeight:1.6}}>
+          💡 Clique em <strong>↻ Sync</strong> para importar suas agendas conectadas para o botão 📅 nos lembretes e cobranças.
+        </div>
+      </div>)}
+    </div>)}
   </div>);
 }
 
@@ -800,7 +1002,7 @@ export default function App() {
     {id:"notes",icon:"◈",label:"Notas"},
     {id:"chat",icon:"◎",label:"Chat IA"},
     {id:"rotina",icon:"🌅",label:"Rotina"},
-    {id:"config",icon:"⚙",label:"Agendas"},
+    {id:"config",icon:"📅",label:"Agenda"},
   ];
 
   const ctxValue={
