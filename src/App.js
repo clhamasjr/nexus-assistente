@@ -597,7 +597,6 @@ function Chat() {
 function Config() {
   const {data,upd}=useContext(NexusCtx);
   const [gcalSigned,setGcalSigned]=useState(false);
-  const [gcalUser,setGcalUser]=useState(null);
   const [calendars,setCalendars]=useState([]);
   const [selCal,setSelCal]=useState(null);
   const [events,setEvents]=useState([]);
@@ -608,22 +607,13 @@ function Config() {
   const [creatingEvt,setCreatingEvt]=useState(false);
   const [configTab,setConfigTab]=useState("agenda");
 
-  // Load gapi on mount
+  // Check if already have token on mount
   useEffect(()=>{
-    loadGapi().then(gapi=>{
-      setGapiReady(true);
-      const auth=gapi.auth2.getAuthInstance();
-      if(auth.isSignedIn.get()){
-        setGcalSigned(true);
-        setGcalUser(auth.currentUser.get().getBasicProfile());
-        loadCalendars();
-      }
-      auth.isSignedIn.listen(signed=>{
-        setGcalSigned(signed);
-        if(signed){setGcalUser(auth.currentUser.get().getBasicProfile());loadCalendars();}
-        else{setGcalUser(null);setCalendars([]);setEvents([]);}
-      });
-    }).catch(()=>{});
+    setGapiReady(true);
+    if(_gcalToken&&_gcalToken.expires_at>Date.now()){
+      setGcalSigned(true);
+      loadCalendars();
+    }
   },[]);
 
   const loadCalendars=async()=>{
@@ -644,12 +634,19 @@ function Config() {
   };
 
   const handleSignIn=async()=>{
-    try{ await gcalSignIn(); }catch(e){alert("Erro ao conectar: "+e.message);}
+    try{
+      await gcalGetToken();
+      setGcalSigned(true);
+      loadCalendars();
+    }catch(e){console.error("GCal signin error",e);}
   };
 
-  const handleSignOut=async()=>{
-    const gapi=await loadGapi();
-    await gapi.auth2.getAuthInstance().signOut();
+  const handleSignOut=()=>{
+    gcalSignOut();
+    setGcalSigned(false);
+    
+    setCalendars([]);
+    setEvents([]);
   };
 
   const handleCreateEvent=async()=>{
@@ -683,7 +680,7 @@ function Config() {
 
   return(<div>
     <div className="ph">
-      <div><div className="pt">Google Agenda 📅</div><div className="ps">{gcalSigned&&gcalUser?gcalUser.getEmail():"Conecte sua conta Google"}</div></div>
+      <div><div className="pt">Google Agenda 📅</div><div className="ps">{gcalSigned?"Google conectado ✓":"Conecte sua conta Google"}</div></div>
       {gcalSigned&&<div style={{display:"flex",gap:8}}>
         <button className="btn bsec bsm" onClick={syncToNexus} title="Sincronizar agendas com o Nexus">↻ Sync</button>
         <button className="btn bdng bsm" onClick={handleSignOut}>Desconectar</button>
