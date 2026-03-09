@@ -652,6 +652,17 @@ function Cobrancas() {
 
 function Tasks() {
   const {data,upd,taskText,setTaskText,taskPrio,setTaskPrio,addTask,pending}=useContext(NexusCtx);
+  const [editId,setEditId]=useState(null);
+  const [editText,setEditText]=useState("");
+  const [editPrio,setEditPrio]=useState("media");
+
+  const startEdit=(t)=>{setEditId(t.id);setEditText(t.text);setEditPrio(t.prio);};
+  const saveEdit=(t)=>{
+    if(!editText.trim()){setEditId(null);return;}
+    upd("tasks",data.tasks.map(x=>x.id===t.id?{...x,text:editText.trim(),prio:editPrio}:x));
+    setEditId(null);
+  };
+
   return(<div>
     <div className="ph"><div><div className="pt">Tarefas</div><div className="ps">{pending} pendente{pending!==1?"s":""}</div></div></div>
     <div className="frow">
@@ -662,8 +673,21 @@ function Tasks() {
     <div className="cl">
       {data.tasks.map(t=>(<div key={t.id} className={`card ${t.done?"dn":""}`}>
         <div className={`pd ${t.prio==="alta"?"pu":"pn"}`}/>
-        <div className="cb"><div className="ct">{t.text}</div><div className="cm"><span className={`tg ${t.prio==="alta"?"tu":t.prio==="media"?"tn2":"tp"}`}>{t.prio}</span>· {fdt(t.created)}</div></div>
+        {editId===t.id
+          ? <div className="cb" style={{flex:1,gap:6,display:"flex",flexDirection:"column"}}>
+              <input value={editText} onChange={e=>setEditText(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")saveEdit(t);if(e.key==="Escape")setEditId(null);}} autoFocus style={{fontSize:13}}/>
+              <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                <select value={editPrio} onChange={e=>setEditPrio(e.target.value)} style={{fontSize:12,padding:"2px 6px",width:"auto"}}>
+                  <option value="alta">🔴 Alta</option><option value="media">🟡 Média</option><option value="baixa">🟢 Baixa</option>
+                </select>
+                <button className="btn bsm" style={{padding:"3px 10px",fontSize:12}} onClick={()=>saveEdit(t)}>Salvar</button>
+                <button className="btn bsec bsm" style={{padding:"3px 10px",fontSize:12}} onClick={()=>setEditId(null)}>Cancelar</button>
+              </div>
+            </div>
+          : <div className="cb"><div className="ct">{t.text}</div><div className="cm"><span className={`tg ${t.prio==="alta"?"tu":t.prio==="media"?"tn2":"tp"}`}>{t.prio}</span>· {fdt(t.created)}</div></div>
+        }
         <div className="ca">
+          {editId!==t.id&&<button className="ib" style={{fontSize:13,opacity:.7}} onClick={()=>startEdit(t)} title="Editar">✎</button>}
           <div className={`chk ${t.done?"on":""}`} onClick={()=>upd("tasks",data.tasks.map(x=>x.id===t.id?{...x,done:!x.done}:x))}>{t.done?"✓":""}</div>
           <button className="ib ibdel" onClick={()=>upd("tasks",data.tasks.filter(x=>x.id!==t.id))}>✕</button>
         </div>
