@@ -11,7 +11,12 @@ const sb = createClient(SUPA_URL, SUPA_KEY);
 // ── Google Calendar OAuth (GIS — não interfere com Supabase) ─────────────────
 const GCAL_CLIENT_ID = "188108397931-rb06rvfof53tsbhd9c3sjokduoe2538n.apps.googleusercontent.com";
 const GCAL_SCOPE = "https://www.googleapis.com/auth/calendar";
-let _gcalToken = null;
+
+// Persist token across page refreshes using sessionStorage
+const _loadToken = () => { try { const t=sessionStorage.getItem("_gcalToken"); return t?JSON.parse(t):null; } catch{return null;} };
+const _saveToken = (t) => { try { sessionStorage.setItem("_gcalToken", JSON.stringify(t)); } catch{} };
+const _clearToken = () => { try { sessionStorage.removeItem("_gcalToken"); } catch{} };
+let _gcalToken = _loadToken();
 
 const loadGapiClient = () => new Promise((resolve) => {
   if (window.gapi && window.gapi.client && window.gapi.client.calendar) { resolve(); return; }
@@ -43,6 +48,7 @@ const gcalGetToken = (forceNew=false) => new Promise(async (resolve, reject) => 
     callback: (resp) => {
       if (resp.error) { reject(new Error(resp.error)); return; }
       _gcalToken = { access_token: resp.access_token, expires_at: Date.now() + (resp.expires_in - 60) * 1000 };
+      _saveToken(_gcalToken);
       window.gapi.client.setToken({ access_token: resp.access_token });
       resolve(resp.access_token);
     },
@@ -74,6 +80,7 @@ const gcalSignOut = () => {
     try { window.google.accounts.oauth2.revoke(_gcalToken.access_token); } catch(e) {}
   }
   _gcalToken = null;
+  _clearToken();
   if (window.gapi && window.gapi.client) window.gapi.client.setToken(null);
 };
 
@@ -771,12 +778,16 @@ function Config() {
     setLoadingCals(false);
   };
 
-  // Check if already have token on mount
+  // Restore token and reload calendars on mount
   useEffect(()=>{
     setGapiReady(true);
     if(_gcalToken&&_gcalToken.expires_at>Date.now()){
       setGcalSigned(true);
-      loadCalendars();
+      // Restore token to gapi client then load calendars
+      loadGapiClient().then(()=>{
+        if(window.gapi?.client) window.gapi.client.setToken({access_token:_gcalToken.access_token});
+        loadCalendars();
+      });
     }
   // eslint-disable-next-line
   },[]);
@@ -1039,6 +1050,144 @@ function Rotina() {
   </div>);
 }
 
+
+// ── Email Panel ───────────────────────────────────────────────────────────────
+const BACKEND_URL = "https://nexus-backend-production-5856.up.railway.app";
+
+function Emails() {
+  const {session} = useContext(NexusCtx);
+  const [emails, setEmails] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [analyzing, setAnalyzing] = useState(null);
+  const [error, setError] = useState(null);
+  const [selEmail, setSelEmail] = useState(null);
+  const [toast, setToast] = useState(null);
+
+  const showToast = (msg, ok=true) => { setToast({msg,ok}); setTimeout(()=>setToast(null),3500); };
+
+  const fetchEmails = async () => {
+    setLoading(true); setError(null);
+    try {
+      const res = await fetch(BACKEND_URL+"/emails/fetch", {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({limit:40})
+      });
+      const d = await res.json();
+      if(d.error) throw new Error(d.error);
+      setEmails(d.emails||[]);
+    } catch(e) { setError(e.message); }
+    setLoading(false);
+  };
+
+  useEffect(()=>{ fetchEmails(); },[]);
+
+  const analyzeAndCreate = async (email) => {
+    setAnalyzing(email.id);
+    try {
+      const prompt = `Analise este e-mail e extraia informações de compromisso/evento se houver.
+Responda APENAS em JSON sem markdown:
+{"is_appointment": true/false, "title": "...", "date": "YYYY-MM-DDTHH:mm:ss", "location": "...", "description": "..."}
+Se não for compromisso, retorne {"is_appointment": false}.
+
+De: ${email.from}
+Assunto: ${email.subject}
+Corpo: ${(email.text||"").slice(0,1500)}`;
+
+      const resp = await fetch("https://api.anthropic.com/v1/messages", {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({
+          model:"claude-sonnet-4-20250514",
+          max_tokens:400,
+          messages:[{role:"user",content:prompt}]
+        })
+      });
+      const ai = await resp.json();
+      const text = ai.content?.[0]?.text||"";
+      let info;
+      try { info = JSON.parse(text.replace(/```json|```/g,"").trim()); }
+      catch { throw new Error("IA não retornou JSON válido"); }
+
+      if(!info.is_appointment) {
+        showToast("Este e-mail não parece ser um compromisso.", false);
+        setAnalyzing(null); return;
+      }
+
+      const token = _gcalToken?.access_token;
+      if(!token) { showToast("Conecte o Google Agenda primeiro (painel Agenda).", false); setAnalyzing(null); return; }
+
+      const start = info.date ? new Date(info.date) : new Date();
+      const end = new Date(start.getTime() + 60*60*1000);
+      const event = {
+        summary: info.title || email.subject,
+        description: info.description || `E-mail de: ${email.from}\n\n${(email.text||"").slice(0,500)}`,
+        location: info.location || "",
+        start: { dateTime: start.toISOString(), timeZone: "America/Sao_Paulo" },
+        end: { dateTime: end.toISOString(), timeZone: "America/Sao_Paulo" },
+      };
+
+      const gcalRes = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events", {
+        method:"POST",
+        headers:{"Authorization":"Bearer "+token,"Content-Type":"application/json"},
+        body: JSON.stringify(event)
+      });
+      if(!gcalRes.ok) throw new Error("Erro ao criar evento no Google Agenda");
+      showToast("✓ Evento criado: "+event.summary);
+    } catch(e) { showToast(e.message, false); }
+    setAnalyzing(null);
+  };
+
+  return(<div>
+    <div className="ph" style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+      <div>
+        <div className="pt">📬 E-mails</div>
+        <div className="ps">carlos@lhamascred.com.br</div>
+      </div>
+      <button className="btn bsm" onClick={fetchEmails} disabled={loading}>{loading?"Carregando...":"↻ Atualizar"}</button>
+    </div>
+
+    {toast&&(<div style={{position:"fixed",top:20,right:20,zIndex:9999,background:toast.ok?"var(--ag)":"var(--ar)",color:"#fff",padding:"10px 18px",borderRadius:10,fontSize:13,fontWeight:600,boxShadow:"0 4px 20px rgba(0,0,0,.3)"}}>{toast.msg}</div>)}
+    {error&&<div style={{color:"var(--ar)",fontSize:13,margin:"10px 0",padding:"10px 14px",background:"rgba(220,53,69,.1)",borderRadius:8}}>⚠ {error}</div>}
+
+    <div style={{display:"grid",gridTemplateColumns:selEmail?"1fr 1fr":"1fr",gap:16}}>
+      <div>
+        {emails.length===0&&!loading&&<div className="empty">Nenhum e-mail carregado.</div>}
+        {emails.map(e=>(
+          <div key={e.id} className="card" style={{cursor:"pointer",borderColor:selEmail?.id===e.id?"var(--ac)":"transparent"}} onClick={()=>setSelEmail(selEmail?.id===e.id?null:e)}>
+            <div className="cb" style={{flex:1}}>
+              <div className="ct" style={{fontSize:13}}>{e.subject}</div>
+              <div className="cm" style={{display:"flex",gap:8,marginTop:3}}>
+                <span style={{flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.from}</span>
+                <span style={{flexShrink:0}}>{e.date?new Date(e.date).toLocaleDateString("pt-BR",{day:"2-digit",month:"short"}):""}</span>
+              </div>
+            </div>
+            <button className="btn bsm" style={{fontSize:11,padding:"4px 10px",flexShrink:0,background:"rgba(91,138,240,.15)",color:"var(--ac)",border:"1px solid var(--ac)"}} disabled={analyzing===e.id} onClick={ev=>{ev.stopPropagation();analyzeAndCreate(e);}}>
+              {analyzing===e.id?"✦...":"📅 Criar evento"}
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {selEmail&&(<div style={{background:"var(--s2)",border:"1px solid var(--b1)",borderRadius:"var(--r14)",padding:16,position:"sticky",top:0,maxHeight:"80vh",overflowY:"auto"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
+          <div style={{fontWeight:700,fontSize:14,flex:1,lineHeight:1.4}}>{selEmail.subject}</div>
+          <button className="ib ibdel" onClick={()=>setSelEmail(null)}>✕</button>
+        </div>
+        <div style={{fontSize:12,color:"var(--sub)",marginBottom:4}}>De: {selEmail.from}</div>
+        <div style={{fontSize:12,color:"var(--sub)",marginBottom:12}}>{selEmail.date?new Date(selEmail.date).toLocaleString("pt-BR"):""}</div>
+        <div style={{fontSize:13,lineHeight:1.7,color:"var(--tx)",whiteSpace:"pre-wrap",wordBreak:"break-word"}}>{selEmail.text||"(sem conteúdo)"}</div>
+        <div style={{marginTop:14}}>
+          <button className="btn bsm" style={{width:"100%"}} disabled={analyzing===selEmail.id} onClick={()=>analyzeAndCreate(selEmail)}>
+            {analyzing===selEmail.id?"✦ Analisando...":"📅 Analisar e criar no Google Agenda"}
+          </button>
+        </div>
+      </div>)}
+    </div>
+  </div>);
+}
+
+
 // ── App ───────────────────────────────────────────────────────────────────────
 export default function App() {
   const [session,setSession]=useState(null);
@@ -1221,6 +1370,7 @@ export default function App() {
     {id:"chat",icon:"◎",label:"Chat IA"},
     {id:"rotina",icon:"🌅",label:"Rotina"},
     {id:"config",icon:"📅",label:"Agenda"},
+    {id:"emails",icon:"📬",label:"E-mails"},
   ];
 
   const ctxValue={
@@ -1238,7 +1388,7 @@ export default function App() {
     todayKey,todayStr,
   };
 
-  const panels={dash:Dash,cobrancas:Cobrancas,tasks:Tasks,reminders:Reminders,reunioes:Reunioes,notes:Notes,chat:Chat,rotina:Rotina,config:Config};
+  const panels={dash:Dash,cobrancas:Cobrancas,tasks:Tasks,reminders:Reminders,reunioes:Reunioes,notes:Notes,chat:Chat,rotina:Rotina,config:Config,emails:Emails};
   const Panel=panels[tab]||Dash;
 
   if(authLoading)return(<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)"}}><style>{CSS}</style><div style={{textAlign:"center",color:"var(--sub)"}}><div style={{fontSize:32,marginBottom:12}}>✦</div><div style={{fontFamily:"Fira Code,monospace",fontSize:13}}>carregando...</div></div></div>);
