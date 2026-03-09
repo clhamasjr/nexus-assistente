@@ -8,44 +8,73 @@ const SUPA_URL = "https://mbcngigdnlnojsklydfi.supabase.co";
 const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1iY25naWdkbmxub2pza2x5ZGZpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI5ODc4NDcsImV4cCI6MjA4ODU2Mzg0N30.LRhTQjOR8UQtA_Dk1uQjWNIDVY1SCvtCHKzQ-u2yl5k";
 const sb = createClient(SUPA_URL, SUPA_KEY);
 
-// ── Google OAuth ──────────────────────────────────────────────────────────────
+// ── Google Calendar OAuth (GIS — não interfere com Supabase) ─────────────────
 const GCAL_CLIENT_ID = "188108397931-rb06rvfof53tsbhd9c3sjokduoe2538n.apps.googleusercontent.com";
 const GCAL_SCOPE = "https://www.googleapis.com/auth/calendar";
+let _gcalToken = null;
 
-const loadGapi = () => new Promise((resolve) => {
-  if (window.gapi) { resolve(window.gapi); return; }
+const loadGapiClient = () => new Promise((resolve) => {
+  if (window.gapi && window.gapi.client && window.gapi.client.calendar) { resolve(); return; }
   const s = document.createElement("script");
   s.src = "https://apis.google.com/js/api.js";
-  s.onload = () => window.gapi.load("client:auth2", async () => {
-    await window.gapi.client.init({ clientId: GCAL_CLIENT_ID, scope: GCAL_SCOPE, discoveryDocs: ["https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest"] });
-    resolve(window.gapi);
+  s.onload = () => window.gapi.load("client", async () => {
+    await window.gapi.client.init({});
+    await window.gapi.client.load("https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest");
+    resolve();
   });
   document.head.appendChild(s);
 });
 
-const gcalSignIn = async () => {
-  const gapi = await loadGapi();
-  if (!gapi.auth2.getAuthInstance().isSignedIn.get()) await gapi.auth2.getAuthInstance().signIn();
-  return gapi;
-};
+const loadGIS = () => new Promise((resolve) => {
+  if (window.google && window.google.accounts && window.google.accounts.oauth2) { resolve(); return; }
+  const s = document.createElement("script");
+  s.src = "https://accounts.google.com/gsi/client";
+  s.onload = () => resolve();
+  document.head.appendChild(s);
+});
+
+const gcalGetToken = () => new Promise(async (resolve, reject) => {
+  await loadGIS();
+  await loadGapiClient();
+  if (_gcalToken && _gcalToken.expires_at > Date.now()) { resolve(_gcalToken.access_token); return; }
+  const client = window.google.accounts.oauth2.initTokenClient({
+    client_id: GCAL_CLIENT_ID,
+    scope: GCAL_SCOPE,
+    callback: (resp) => {
+      if (resp.error) { reject(new Error(resp.error)); return; }
+      _gcalToken = { access_token: resp.access_token, expires_at: Date.now() + (resp.expires_in - 60) * 1000 };
+      window.gapi.client.setToken({ access_token: resp.access_token });
+      resolve(resp.access_token);
+    },
+  });
+  client.requestAccessToken({ prompt: "" });
+});
 
 const gcalListEvents = async (calendarId="primary", maxResults=20) => {
-  const gapi = await gcalSignIn();
+  await gcalGetToken();
   const now = new Date().toISOString();
-  const res = await gapi.client.calendar.events.list({ calendarId, timeMin: now, maxResults, singleEvents: true, orderBy: "startTime" });
+  const res = await window.gapi.client.calendar.events.list({ calendarId, timeMin: now, maxResults, singleEvents: true, orderBy: "startTime" });
   return res.result.items || [];
 };
 
 const gcalListCalendars = async () => {
-  const gapi = await gcalSignIn();
-  const res = await gapi.client.calendar.calendarList.list();
+  await gcalGetToken();
+  const res = await window.gapi.client.calendar.calendarList.list();
   return res.result.items || [];
 };
 
 const gcalCreateEvent = async (calendarId, title, description, startISO, endISO) => {
-  const gapi = await gcalSignIn();
-  const res = await gapi.client.calendar.events.insert({ calendarId, resource: { summary: title, description, start: { dateTime: startISO }, end: { dateTime: endISO } } });
+  await gcalGetToken();
+  const res = await window.gapi.client.calendar.events.insert({ calendarId, resource: { summary: title, description, start: { dateTime: startISO }, end: { dateTime: endISO } } });
   return res.result;
+};
+
+const gcalSignOut = () => {
+  if (_gcalToken && _gcalToken.access_token) {
+    try { window.google.accounts.oauth2.revoke(_gcalToken.access_token); } catch(e) {}
+  }
+  _gcalToken = null;
+  if (window.gapi && window.gapi.client) window.gapi.client.setToken(null);
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
