@@ -1146,30 +1146,37 @@ export default function App() {
 
   const upd=useCallback((key,val)=>{
     setData(d=>({...d,[key]:val}));
-    // Sync to Supabase
     if(!session) return;
     const userId=session.user.id;
     const TABLE_MAP={tasks:"tasks",reminders:"reminders",cobrancas:"cobrancas",notes:"notes",reunioes:"reunioes",rotina:"rotina",habitos:"habitos",gcalAccounts:"gcal_accounts"};
     const table=TABLE_MAP[key];
     if(!table) return;
-    // Upsert all items for this user
+    const now=new Date().toISOString();
+    const toDate=(v)=>v?new Date(v).toISOString():null;
     const items=(Array.isArray(val)?val:[]).map(item=>{
-      const base={...item,user_id:userId};
-      // Normalize date fields
-      if(key==="tasks") return {id:base.id,user_id:userId,text:base.text,prio:base.prio,done:base.done,created_at:base.created?new Date(base.created).toISOString():new Date().toISOString()};
-      if(key==="reminders") return {id:base.id,user_id:userId,text:base.text,date:base.date?new Date(base.date).toISOString():null,created_at:base.created?new Date(base.created).toISOString():new Date().toISOString()};
-      if(key==="cobrancas") return {id:base.id,user_id:userId,pessoa:base.pessoa,tarefa:base.tarefa,date:base.date?new Date(base.date).toISOString():null,prio:base.prio,status:base.status,dias_aviso:base.diasAviso||1,created_at:base.created?new Date(base.created).toISOString():new Date().toISOString()};
-      if(key==="notes") return {id:base.id,user_id:userId,title:base.title,body:base.body,created_at:base.created?new Date(base.created).toISOString():new Date().toISOString(),updated_at:base.updated?new Date(base.updated).toISOString():new Date().toISOString()};
-      if(key==="reunioes") return {id:base.id,user_id:userId,title:base.title,participantes:base.participantes,texto:base.texto,created_at:base.created?new Date(base.created).toISOString():new Date().toISOString()};
-      if(key==="rotina") return {id:base.id,user_id:userId,hora:base.hora,titulo:base.titulo,categoria:base.categoria};
-      if(key==="habitos") return {id:base.id,user_id:userId,nome:base.nome,icon:base.icon};
-      if(key==="gcalAccounts") return {id:base.id,user_id:userId,name:base.name||base.nome,email:base.email,color:base.color};
-      return base;
+      if(key==="tasks") return {id:item.id,user_id:userId,text:item.text,prio:item.prio,done:!!item.done,atribuido_por:item.atribuido_por||null,created_at:toDate(item.created)||now};
+      if(key==="reminders") return {id:item.id,user_id:userId,text:item.text,date:toDate(item.date),created_at:toDate(item.created)||now};
+      if(key==="cobrancas") return {id:item.id,user_id:userId,pessoa:item.pessoa,tarefa:item.tarefa,date:toDate(item.date),prio:item.prio,status:item.status,dias_aviso:Number(item.diasAviso||1),created_at:toDate(item.created)||now};
+      if(key==="notes") return {id:item.id,user_id:userId,title:item.title||"",body:item.body||"",created_at:toDate(item.created)||now,updated_at:toDate(item.updated)||now};
+      if(key==="reunioes") return {id:item.id,user_id:userId,title:item.title,participantes:item.participantes||"",texto:item.texto||"",created_at:toDate(item.created)||now};
+      if(key==="rotina") return {id:item.id,user_id:userId,hora:item.hora,titulo:item.titulo,categoria:item.categoria};
+      if(key==="habitos") return {id:item.id,user_id:userId,nome:item.nome,icon:item.icon};
+      if(key==="gcalAccounts") return {id:item.id,user_id:userId,nome:item.name||item.nome||"",email:item.email,color:item.color||"#5b8af0"};
+      return item;
     });
-    // Delete removed items then upsert remaining
-    sb.from(table).delete().eq("user_id",userId).then(()=>{
-      if(items.length>0) sb.from(table).upsert(items).then(({error})=>{if(error)console.error("Supabase sync error:",key,error);});
-    });
+    // Get current IDs in DB, delete removed ones, upsert remaining
+    const syncFn=async()=>{
+      if(items.length>0){
+        const{error}=await sb.from(table).upsert(items,{onConflict:"id"});
+        if(error){console.error("upsert error",key,error);return;}
+      }
+      // Delete items no longer in list
+      const ids=items.map(i=>i.id);
+      const{data:existing}=await sb.from(table).select("id").eq("user_id",userId);
+      const toDelete=(existing||[]).filter(r=>!ids.includes(r.id)).map(r=>r.id);
+      if(toDelete.length>0) await sb.from(table).delete().in("id",toDelete);
+    };
+    syncFn().catch(e=>console.error("sync error",key,e));
   },[session]);
   const accounts=data.gcalAccounts||[];
 
