@@ -79,7 +79,7 @@ const gcalSignOut = () => {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const BLANK = { tasks:[], reminders:[], notes:[], messages:[], cobrancas:[], reunioes:[], gcalAccounts:[], rotina:[], habitos:[], semana:{} };
-const uid = () => Math.random().toString(36).slice(2,10);
+const uid = () => 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{const r=Math.random()*16|0;return(c==='x'?r:(r&0x3|0x8)).toString(16)});
 const fdt = (d) => d ? new Date(d).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",year:"2-digit",hour:"2-digit",minute:"2-digit"}) : "—";
 const fdtShort = (d) => d ? new Date(d).toLocaleDateString("pt-BR") : "—";
 const clk = () => new Date().toLocaleString("pt-BR",{weekday:"short",day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"});
