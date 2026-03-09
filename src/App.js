@@ -948,7 +948,7 @@ function Config() {
       </div>)}
     </div>)}
   </div>);
-
+}
 
 function Rotina() {
   const {data,upd,todayKey,todayStr,rotinaModal,setRotinaModal,habModal,setHabModal,rotinaItem,setRotinaItem,habItem,setHabItem,rotinaTab,setRotinaTab,toggleHabito,toggleRotina,habDone,rotDone,habsFeitos,rotFeitos,totalHabs,totalRot,getWeekStats,getWeekDates,getNowMinutes,timeToMin}=useContext(NexusCtx);
