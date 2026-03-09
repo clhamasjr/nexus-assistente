@@ -111,10 +111,10 @@ const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Fira+Code:wght@300;400;500&display=swap');
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --bg:#07080f;--s1:#0f1018;--s2:#161722;--s3:#1e1f2e;--s4:#272840;
-  --b1:#2c2d44;--b2:#3d3e5c;
+  --bg:#1a1d2e;--s1:#212438;--s2:#272b42;--s3:#2f344f;--s4:#373c5c;
+  --b1:#3a3f60;--b2:#4a5080;
   --ac:#5b8af0;--ag:#3dd68c;--ap:#e06bf0;--aw:#f0b84a;--ar:#f06b6b;
-  --tx:#dde1f0;--sub:#8890b0;--mut:#4a4e6a;
+  --tx:#e8ecf8;--sub:#9aa0c0;--mut:#5a6080;
   --r6:6px;--r10:10px;--r14:14px;
 }
 html,body,#root{height:100%;overflow:hidden}
@@ -368,6 +368,24 @@ label{font-size:12px;font-weight:600;color:var(--sub);display:block;margin-botto
 .gcal-new-event{background:var(--s2);border:1px solid var(--b1);border-radius:var(--r14);padding:16px;margin-bottom:16px}
 .gcal-new-title{font-size:12px;font-weight:700;color:var(--sub);letter-spacing:.5px;text-transform:uppercase;margin-bottom:12px}
 @media(max-width:650px){.gcal-panel{grid-template-columns:1fr;height:auto}}
+/* Mini Calendar */
+.mini-cal{background:var(--s2);border:1px solid var(--b1);border-radius:var(--r14);padding:16px;margin-bottom:16px}
+.mini-cal-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.mini-cal-month{font-size:13px;font-weight:700}
+.mini-cal-nav{background:none;border:none;color:var(--sub);cursor:pointer;font-size:16px;width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center}
+.mini-cal-nav:hover{background:var(--s3)}
+.mini-cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
+.mini-cal-dh{text-align:center;font-size:10px;font-weight:700;color:var(--mut);padding:4px 0;font-family:'Fira Code',monospace}
+.mini-cal-day{text-align:center;font-size:12px;padding:5px 2px;border-radius:6px;cursor:pointer;transition:all .15s;min-height:28px;display:flex;flex-direction:column;align-items:center;gap:1px}
+.mini-cal-day:hover{background:var(--s3)}
+.mini-cal-day.today{background:var(--ac);color:#fff;font-weight:700}
+.mini-cal-day.has-evt::after{content:'';width:4px;height:4px;border-radius:50%;background:var(--ag);display:block}
+.mini-cal-day.today.has-evt::after{background:#fff}
+.mini-cal-day.sel{outline:2px solid var(--ac)}
+.mini-cal-day.empty{cursor:default}
+.gcal-day-events{background:var(--s2);border:1px solid var(--b1);border-radius:var(--r10);padding:12px;margin-bottom:12px}
+.gcal-day-title{font-size:11px;font-weight:700;color:var(--mut);letter-spacing:.5px;text-transform:uppercase;margin-bottom:8px}
+
 `;
 
 // ── Account Colors ────────────────────────────────────────────────────────────
@@ -716,11 +734,39 @@ function Config() {
     alert(newAccs.length>0?`${newAccs.length} nova(s) agenda(s) adicionada(s) ao Nexus! ✅`:"Todas as agendas já estavam sincronizadas. ✅");
   };
 
+  const [calView,setCalView]=useState(()=>new Date());
+  const [selDay,setSelDay]=useState(null);
+
+  const getDaysInMonth=(d)=>{
+    const y=d.getFullYear(),m=d.getMonth();
+    const first=new Date(y,m,1).getDay(),total=new Date(y,m+1,0).getDate();
+    const days=[];
+    for(let i=0;i<first;i++)days.push(null);
+    for(let i=1;i<=total;i++)days.push(new Date(y,m,i));
+    return days;
+  };
+
+  const eventsOnDay=(d)=>{
+    if(!d)return[];
+    return events.filter(e=>{
+      const es=e.start?.dateTime||e.start?.date;
+      if(!es)return false;
+      const ed=new Date(es);
+      return ed.getFullYear()===d.getFullYear()&&ed.getMonth()===d.getMonth()&&ed.getDate()===d.getDate();
+    });
+  };
+
+  const selDayEvents=selDay?eventsOnDay(selDay):[];
+  const todayD=new Date();
+  const MONTHS_BR=["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
+  const DAYS_BR=["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
+
   return(<div>
     <div className="ph">
       <div><div className="pt">Google Agenda 📅</div><div className="ps">{gcalSigned?"Google conectado ✓":"Conecte sua conta Google"}</div></div>
       {gcalSigned&&<div style={{display:"flex",gap:8}}>
-        <button className="btn bsec bsm" onClick={syncToNexus} title="Sincronizar agendas com o Nexus">↻ Sync</button>
+        <button className="btn bsec bsm" onClick={syncToNexus} title="Sincronizar agendas">↻ Sync</button>
+        <button className="btn bsec bsm" onClick={handleSignIn} title="Adicionar outra conta">+ Conta</button>
         <button className="btn bdng bsm" onClick={handleSignOut}>Desconectar</button>
       </div>}
     </div>
@@ -739,25 +785,56 @@ function Config() {
     </div>)}
 
     {gcalSigned&&(<div>
-      {/* Tabs */}
       <div style={{display:"flex",gap:6,marginBottom:20,borderBottom:"1px solid var(--b1)",paddingBottom:12}}>
-        {[{id:"agenda",label:"📅 Agenda"},{id:"novo",label:"➕ Novo evento"}].map(t=>(<button key={t.id} className={"btn bsm "+(configTab===t.id?"":"bsec")} onClick={()=>setConfigTab(t.id)}>{t.label}</button>))}
+        {[{id:"agenda",label:"📅 Calendário"},{id:"novo",label:"➕ Novo evento"}].map(t=>(<button key={t.id} className={"btn bsm "+(configTab===t.id?"":"bsec")} onClick={()=>setConfigTab(t.id)}>{t.label}</button>))}
       </div>
 
       {configTab==="agenda"&&(<div className="gcal-panel">
-        {/* Calendar list */}
+        {/* Left: calendars + mini calendar */}
         <div className="gcal-sidebar">
-          <div style={{fontSize:11,fontWeight:700,color:"var(--mut)",letterSpacing:.5,textTransform:"uppercase",marginBottom:4}}>Suas agendas</div>
+          <div style={{fontSize:11,fontWeight:700,color:"var(--mut)",letterSpacing:.5,textTransform:"uppercase",marginBottom:8}}>Agendas</div>
           {loadingCals&&<div style={{color:"var(--mut)",fontSize:13}}>Carregando...</div>}
-          {calendars.map(cal=>(<div key={cal.id} className={"gcal-cal-item"+(selCal===cal.id?" sel":"")} onClick={()=>{setSelCal(cal.id);loadEvents(cal.id);}}>
+          {calendars.map(cal=>(<div key={cal.id} className={"gcal-cal-item"+(selCal===cal.id?" sel":"")} onClick={()=>{setSelCal(cal.id);loadEvents(cal.id);setSelDay(null);}}>
             <div className="gcal-cal-dot" style={{background:calColor(cal)}}/>
             <div className="gcal-cal-name">{cal.summary}</div>
           </div>))}
+          
+          {/* Mini Calendar */}
+          <div className="mini-cal" style={{marginTop:12}}>
+            <div className="mini-cal-header">
+              <button className="mini-cal-nav" onClick={()=>setCalView(d=>new Date(d.getFullYear(),d.getMonth()-1,1))}>‹</button>
+              <div className="mini-cal-month">{MONTHS_BR[calView.getMonth()]} {calView.getFullYear()}</div>
+              <button className="mini-cal-nav" onClick={()=>setCalView(d=>new Date(d.getFullYear(),d.getMonth()+1,1))}>›</button>
+            </div>
+            <div className="mini-cal-grid">
+              {DAYS_BR.map(d=><div key={d} className="mini-cal-dh">{d[0]}</div>)}
+              {getDaysInMonth(calView).map((d,i)=>{
+                if(!d)return<div key={"e"+i} className="mini-cal-day empty"/>;
+                const isToday=d.toDateString()===todayD.toDateString();
+                const isSel=selDay&&d.toDateString()===selDay.toDateString();
+                const hasEvt=eventsOnDay(d).length>0;
+                return(<div key={i} className={"mini-cal-day"+(isToday?" today":"")+(isSel?" sel":"")+(hasEvt?" has-evt":"")} onClick={()=>setSelDay(isSel?null:d)}>{d.getDate()}</div>);
+              })}
+            </div>
+          </div>
         </div>
-        {/* Events list */}
+
+        {/* Right: events */}
         <div>
+          {selDay&&(<div className="gcal-day-events">
+            <div className="gcal-day-title">{selDay.toLocaleDateString("pt-BR",{weekday:"long",day:"2-digit",month:"long"})}</div>
+            {selDayEvents.length
+              ?selDayEvents.map(evt=>(<div key={evt.id} className="gcal-event" style={{borderLeftColor:selCal&&calendars.find(c=>c.id===selCal)?calColor(calendars.find(c=>c.id===selCal)):"var(--ac)",marginBottom:6}}>
+                <div className="gcal-event-title">{evt.summary||"(Sem título)"}</div>
+                <div className="gcal-event-time">{fmtEvtTime(evt)}</div>
+                {evt.location&&<div className="gcal-event-loc">📍 {evt.location}</div>}
+              </div>))
+              :<div style={{fontSize:13,color:"var(--mut)"}}>Nenhum evento neste dia.</div>
+            }
+          </div>)}
+          
           <div style={{fontSize:11,fontWeight:700,color:"var(--mut)",letterSpacing:.5,textTransform:"uppercase",marginBottom:12}}>
-            Próximos eventos {selCal&&calendars.find(c=>c.id===selCal)&&`— ${calendars.find(c=>c.id===selCal).summary}`}
+            {selDay?"Todos os próximos eventos":"Próximos eventos"} {selCal&&calendars.find(c=>c.id===selCal)&&`— ${calendars.find(c=>c.id===selCal).summary}`}
           </div>
           {loadingEvts&&<div style={{color:"var(--mut)",fontSize:13}}>Carregando eventos...</div>}
           <div className="gcal-events">
@@ -788,12 +865,12 @@ function Config() {
           </div>
         </div>
         <div style={{background:"rgba(91,138,240,.06)",border:"1px solid rgba(91,138,240,.2)",borderRadius:"var(--r10)",padding:"14px 16px",fontSize:13,color:"var(--sub)",lineHeight:1.6}}>
-          💡 Clique em <strong>↻ Sync</strong> para importar suas agendas conectadas para o botão 📅 nos lembretes e cobranças.
+          💡 Clique em <strong>↻ Sync</strong> para importar suas agendas para o botão 📅 nos lembretes e cobranças. Use <strong>+ Conta</strong> para adicionar mais contas Google.
         </div>
       </div>)}
     </div>)}
   </div>);
-}
+
 
 function Rotina() {
   const {data,upd,todayKey,todayStr,rotinaModal,setRotinaModal,habModal,setHabModal,rotinaItem,setRotinaItem,habItem,setHabItem,rotinaTab,setRotinaTab,toggleHabito,toggleRotina,habDone,rotDone,habsFeitos,rotFeitos,totalHabs,totalRot,getWeekStats,getWeekDates,getNowMinutes,timeToMin}=useContext(NexusCtx);
