@@ -319,12 +319,6 @@ label{font-size:12px;font-weight:600;color:var(--sub);display:block;margin-botto
   .frow .fg{min-width:0}
 }
 @media(max-width:380px){.ng{grid-template-columns:1fr}}
-`;
-
-//
-
-
-/* Google Calendar Panel */
 .gcal-panel{display:grid;grid-template-columns:280px 1fr;gap:16px;height:calc(100vh - 200px)}
 .gcal-sidebar{display:flex;flex-direction:column;gap:8px;overflow-y:auto}
 .gcal-cal-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:var(--r10);cursor:pointer;border:1px solid transparent;transition:all .15s}
@@ -345,6 +339,7 @@ label{font-size:12px;font-weight:600;color:var(--sub);display:block;margin-botto
 .gcal-new-event{background:var(--s2);border:1px solid var(--b1);border-radius:var(--r14);padding:16px;margin-bottom:16px}
 .gcal-new-title{font-size:12px;font-weight:700;color:var(--sub);letter-spacing:.5px;text-transform:uppercase;margin-bottom:12px}
 @media(max-width:650px){.gcal-panel{grid-template-columns:1fr;height:auto}}
+`;
 
 // ── Account Colors ────────────────────────────────────────────────────────────
 const ACCOUNT_COLORS = ["#5b8af0","#3dd68c","#e06bf0","#f0b84a","#f06b6b"];
