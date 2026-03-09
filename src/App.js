@@ -368,6 +368,7 @@ label{font-size:12px;font-weight:600;color:var(--sub);display:block;margin-botto
 .gcal-new-event{background:var(--s2);border:1px solid var(--b1);border-radius:var(--r14);padding:16px;margin-bottom:16px}
 .gcal-new-title{font-size:12px;font-weight:700;color:var(--sub);letter-spacing:.5px;text-transform:uppercase;margin-bottom:12px}
 @media(max-width:650px){.gcal-panel{grid-template-columns:1fr;height:auto}}
+@media(max-width:800px){.dash-grid{grid-template-columns:1fr!important}}
 /* Mini Calendar */
 .mini-cal{background:var(--s2);border:1px solid var(--b1);border-radius:var(--r14);padding:16px;margin-bottom:16px}
 .mini-cal-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
@@ -471,38 +472,115 @@ function LoginScreen() {
 // ── Panels (outside App to prevent re-mount on state change) ──────────────────
 function Dash() {
   const {data,setTab,dueAlerts,pending,upcoming,cbPending}=useContext(NexusCtx);
-  return(<div>
-    <div className="ph"><div>
-      <div className="pt">{saudacao()} ✦</div>
-      <div className="ps">Resumo do seu dia</div>
-    </div></div>
-    {dueAlerts.map(c=>(<div key={c.id} className="alert-strip">⚠ Cobrança: <strong>{c.pessoa}</strong> — {c.tarefa} ({daysUntil(c.date)<=0?"VENCIDO":`em ${daysUntil(c.date)}d`})</div>))}
-    <div className="dg">
-      <div className="st sa" style={{cursor:"pointer"}} onClick={()=>setTab("cobrancas")}><div className="sn">{data.cobrancas.filter(c=>c.status==="pendente").length}</div><div className="sl">Cobranças pendentes</div></div>
-      <div className="st sw" style={{cursor:"pointer"}} onClick={()=>setTab("tasks")}><div className="sn">{pending}</div><div className="sl">Tarefas abertas</div></div>
-      <div className="st sg" style={{cursor:"pointer"}} onClick={()=>setTab("reminders")}><div className="sn">{upcoming}</div><div className="sl">Lembretes futuros</div></div>
-      <div className="st sp" style={{cursor:"pointer"}} onClick={()=>setTab("reunioes")}><div className="sn">{data.reunioes.length}</div><div className="sl">Reuniões salvas</div></div>
+  const [calView,setCalView]=useState(()=>new Date());
+  const [selDay,setSelDay]=useState(null);
+  const MONTHS_BR=["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
+  const DAYS_BR=["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
+  const today=new Date();
+
+  const getDaysInMonth=(d)=>{
+    const y=d.getFullYear(),m=d.getMonth();
+    const first=new Date(y,m,1).getDay(),total=new Date(y,m+1,0).getDate();
+    const days=[];for(let i=0;i<first;i++)days.push(null);
+    for(let i=1;i<=total;i++)days.push(new Date(y,m,i));
+    return days;
+  };
+
+  // Items that have dates — reminders + cobrancas + reunioes
+  const itemsOnDay=(d)=>{
+    if(!d) return [];
+    const ds=d.toDateString();
+    const rems=(data.reminders||[]).filter(r=>r.date&&new Date(r.date).toDateString()===ds);
+    const cobs=(data.cobrancas||[]).filter(c=>c.date&&new Date(c.date).toDateString()===ds);
+    return [...rems.map(r=>({label:r.text,type:"rem"})),...cobs.map(c=>({label:c.pessoa+" — "+c.tarefa,type:"cob"}))];
+  };
+
+  const selDayItems=selDay?itemsOnDay(selDay):[];
+
+  return(<div style={{display:"grid",gridTemplateColumns:"1fr 300px",gap:20,alignItems:"start"}}>
+    {/* Left column */}
+    <div>
+      <div className="ph"><div>
+        <div className="pt">{saudacao()} ✦</div>
+        <div className="ps">Resumo do seu dia</div>
+      </div></div>
+      {dueAlerts.map(c=>(<div key={c.id} className="alert-strip">⚠ Cobrança: <strong>{c.pessoa}</strong> — {c.tarefa} ({daysUntil(c.date)<=0?"VENCIDO":`em ${daysUntil(c.date)}d`})</div>))}
+      <div className="dg">
+        <div className="st sa" style={{cursor:"pointer"}} onClick={()=>setTab("cobrancas")}><div className="sn">{data.cobrancas.filter(c=>c.status==="pendente").length}</div><div className="sl">Cobranças pendentes</div></div>
+        <div className="st sw" style={{cursor:"pointer"}} onClick={()=>setTab("tasks")}><div className="sn">{pending}</div><div className="sl">Tarefas abertas</div></div>
+        <div className="st sg" style={{cursor:"pointer"}} onClick={()=>setTab("reminders")}><div className="sn">{upcoming}</div><div className="sl">Lembretes futuros</div></div>
+        <div className="st sp" style={{cursor:"pointer"}} onClick={()=>setTab("reunioes")}><div className="sn">{data.reunioes.length}</div><div className="sl">Reuniões salvas</div></div>
+      </div>
+      <div className="fsec">Cobranças urgentes</div>
+      <div className="cl">
+        {data.cobrancas.filter(c=>c.prio==="urgente"&&c.status!=="entregue").slice(0,3).map(c=>(
+          <div key={c.id} className="card" style={{cursor:"pointer"}} onClick={()=>setTab("cobrancas")}>
+            <div className="pd pu"/>
+            <div className="cb"><div className="ct">{c.pessoa} — {c.tarefa}</div><div className="cm">{c.date?fdtShort(c.date):"Sem data"}</div></div>
+            <span className={`pill ${c.status==="pendente"?"pend":c.status==="cobrado"?"cobr":"entr"}`}>{c.status}</span>
+          </div>
+        ))}
+        {!data.cobrancas.filter(c=>c.prio==="urgente"&&c.status!=="entregue").length&&<div className="empty">Nenhuma cobrança urgente.</div>}
+      </div>
+      <div className="fsec" style={{marginTop:20}}>Tarefas pendentes</div>
+      <div className="cl">
+        {data.tasks.filter(t=>!t.done).slice(0,5).map(t=>(
+          <div key={t.id} className="card" style={{cursor:"pointer"}} onClick={()=>setTab("tasks")}>
+            <div className={`pd ${t.prio==="alta"?"pu":"pn"}`}/>
+            <div className="cb"><div className="ct">{t.text}</div><div className="cm"><span className={`tg ${t.prio==="alta"?"tu":t.prio==="media"?"tn2":"tp"}`}>{t.prio}</span></div></div>
+          </div>
+        ))}
+        {!data.tasks.filter(t=>!t.done).length&&<div className="empty">Nenhuma tarefa pendente.</div>}
+      </div>
     </div>
-    <div className="fsec">Cobranças urgentes</div>
-    <div className="cl">
-      {data.cobrancas.filter(c=>c.prio==="urgente"&&c.status!=="entregue").slice(0,3).map(c=>(
-        <div key={c.id} className="card" style={{cursor:"pointer"}} onClick={()=>setTab("cobrancas")}>
-          <div className="pd pu"/>
-          <div className="cb"><div className="ct">{c.pessoa} — {c.tarefa}</div><div className="cm">{c.date?fdtShort(c.date):"Sem data"}</div></div>
-          <span className={`pill ${c.status==="pendente"?"pend":c.status==="cobrado"?"cobr":"entr"}`}>{c.status}</span>
+
+    {/* Right column — Calendar */}
+    <div style={{paddingTop:8}}>
+      <div className="mini-cal">
+        <div className="mini-cal-header">
+          <button className="mini-cal-nav" onClick={()=>setCalView(d=>new Date(d.getFullYear(),d.getMonth()-1,1))}>‹</button>
+          <div className="mini-cal-month">{MONTHS_BR[calView.getMonth()]} {calView.getFullYear()}</div>
+          <button className="mini-cal-nav" onClick={()=>setCalView(d=>new Date(d.getFullYear(),d.getMonth()+1,1))}>›</button>
         </div>
-      ))}
-      {!data.cobrancas.filter(c=>c.prio==="urgente"&&c.status!=="entregue").length&&<div className="empty">Nenhuma cobrança urgente.</div>}
-    </div>
-    <div className="fsec" style={{marginTop:20}}>Tarefas pendentes</div>
-    <div className="cl">
-      {data.tasks.filter(t=>!t.done).slice(0,5).map(t=>(
-        <div key={t.id} className="card" style={{cursor:"pointer"}} onClick={()=>setTab("tasks")}>
-          <div className={`pd ${t.prio==="alta"?"pu":"pn"}`}/>
-          <div className="cb"><div className="ct">{t.text}</div><div className="cm"><span className={`tg ${t.prio==="alta"?"tu":t.prio==="media"?"tn2":"tp"}`}>{t.prio}</span></div></div>
+        <div className="mini-cal-grid">
+          {DAYS_BR.map(d=><div key={d} className="mini-cal-dh">{d[0]}</div>)}
+          {getDaysInMonth(calView).map((d,i)=>{
+            if(!d)return<div key={"e"+i} className="mini-cal-day empty"/>;
+            const isToday=d.toDateString()===today.toDateString();
+            const isSel=selDay&&d.toDateString()===selDay.toDateString();
+            const hasItems=itemsOnDay(d).length>0;
+            return(<div key={i} className={"mini-cal-day"+(isToday?" today":"")+(isSel?" sel":"")+(hasItems?" has-evt":"")} onClick={()=>setSelDay(isSel?null:d)}>{d.getDate()}</div>);
+          })}
         </div>
-      ))}
-      {!data.tasks.filter(t=>!t.done).length&&<div className="empty">Nenhuma tarefa pendente.</div>}
+      </div>
+
+      {selDay&&(<div style={{background:"var(--s2)",border:"1px solid var(--b1)",borderRadius:"var(--r14)",padding:14}}>
+        <div style={{fontSize:11,fontWeight:700,color:"var(--mut)",letterSpacing:.5,textTransform:"uppercase",marginBottom:10}}>
+          {selDay.toLocaleDateString("pt-BR",{weekday:"long",day:"2-digit",month:"long"})}
+        </div>
+        {selDayItems.length
+          ?selDayItems.map((item,i)=>(<div key={i} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 0",borderBottom:"1px solid var(--b1)"}}>
+              <span style={{fontSize:13}}>{item.type==="rem"?"◷":"👤"}</span>
+              <span style={{fontSize:12,flex:1}}>{item.label}</span>
+            </div>))
+          :<div style={{fontSize:12,color:"var(--mut)"}}>Nenhum item neste dia.</div>
+        }
+      </div>)}
+
+      {/* Upcoming reminders */}
+      <div style={{marginTop:16}}>
+        <div className="fsec" style={{marginBottom:10}}>Próximos lembretes</div>
+        {[...data.reminders].filter(r=>new Date(r.date)>new Date()).sort((a,b)=>new Date(a.date)-new Date(b.date)).slice(0,4).map(r=>(
+          <div key={r.id} style={{display:"flex",gap:8,alignItems:"center",padding:"8px 0",borderBottom:"1px solid var(--b1)"}}>
+            <span style={{fontSize:13}}>◷</span>
+            <div style={{flex:1}}>
+              <div style={{fontSize:12,fontWeight:600}}>{r.text}</div>
+              <div style={{fontSize:11,color:"var(--sub)"}}>{fdt(r.date)}</div>
+            </div>
+          </div>
+        ))}
+        {!data.reminders.filter(r=>new Date(r.date)>new Date()).length&&<div style={{fontSize:12,color:"var(--mut)"}}>Sem lembretes futuros.</div>}
+      </div>
     </div>
   </div>);
 }
@@ -1066,7 +1144,33 @@ export default function App() {
   useEffect(()=>{const t=setInterval(()=>setClock(clk()),30000);return()=>clearInterval(t);},[]);
   useEffect(()=>{if(tab==="chat")msgsEnd.current?.scrollIntoView({behavior:"smooth"});},[data.messages,tab,aiLoading]);
 
-  const upd=useCallback((key,val)=>setData(d=>({...d,[key]:val})),[]);
+  const upd=useCallback((key,val)=>{
+    setData(d=>({...d,[key]:val}));
+    // Sync to Supabase
+    if(!session) return;
+    const userId=session.user.id;
+    const TABLE_MAP={tasks:"tasks",reminders:"reminders",cobrancas:"cobrancas",notes:"notes",reunioes:"reunioes",rotina:"rotina",habitos:"habitos",gcalAccounts:"gcal_accounts"};
+    const table=TABLE_MAP[key];
+    if(!table) return;
+    // Upsert all items for this user
+    const items=(Array.isArray(val)?val:[]).map(item=>{
+      const base={...item,user_id:userId};
+      // Normalize date fields
+      if(key==="tasks") return {id:base.id,user_id:userId,text:base.text,prio:base.prio,done:base.done,created_at:base.created?new Date(base.created).toISOString():new Date().toISOString()};
+      if(key==="reminders") return {id:base.id,user_id:userId,text:base.text,date:base.date?new Date(base.date).toISOString():null,created_at:base.created?new Date(base.created).toISOString():new Date().toISOString()};
+      if(key==="cobrancas") return {id:base.id,user_id:userId,pessoa:base.pessoa,tarefa:base.tarefa,date:base.date?new Date(base.date).toISOString():null,prio:base.prio,status:base.status,dias_aviso:base.diasAviso||1,created_at:base.created?new Date(base.created).toISOString():new Date().toISOString()};
+      if(key==="notes") return {id:base.id,user_id:userId,title:base.title,body:base.body,created_at:base.created?new Date(base.created).toISOString():new Date().toISOString(),updated_at:base.updated?new Date(base.updated).toISOString():new Date().toISOString()};
+      if(key==="reunioes") return {id:base.id,user_id:userId,title:base.title,participantes:base.participantes,texto:base.texto,created_at:base.created?new Date(base.created).toISOString():new Date().toISOString()};
+      if(key==="rotina") return {id:base.id,user_id:userId,hora:base.hora,titulo:base.titulo,categoria:base.categoria};
+      if(key==="habitos") return {id:base.id,user_id:userId,nome:base.nome,icon:base.icon};
+      if(key==="gcalAccounts") return {id:base.id,user_id:userId,name:base.name||base.nome,email:base.email,color:base.color};
+      return base;
+    });
+    // Delete removed items then upsert remaining
+    sb.from(table).delete().eq("user_id",userId).then(()=>{
+      if(items.length>0) sb.from(table).upsert(items).then(({error})=>{if(error)console.error("Supabase sync error:",key,error);});
+    });
+  },[session]);
   const accounts=data.gcalAccounts||[];
 
   const dueAlerts=data.cobrancas.filter(c=>{const days=daysUntil(c.date);return c.date&&days<=(c.diasAviso||1)&&days>=-30;});
