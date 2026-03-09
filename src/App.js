@@ -579,23 +579,7 @@ function Dash() {
 
     {/* Right column — Calendar */}
     <div style={{paddingTop:8}}>
-      <div className="mini-cal">
-        <div className="mini-cal-header">
-          <button className="mini-cal-nav" onClick={()=>setCalView(d=>new Date(d.getFullYear(),d.getMonth()-1,1))}>‹</button>
-          <div className="mini-cal-month">{MONTHS_BR[calView.getMonth()]} {calView.getFullYear()}</div>
-          <button className="mini-cal-nav" onClick={()=>setCalView(d=>new Date(d.getFullYear(),d.getMonth()+1,1))}>›</button>
-        </div>
-        <div className="mini-cal-grid">
-          {DAYS_BR.map(d=><div key={d} className="mini-cal-dh">{d[0]}</div>)}
-          {getDaysInMonth(calView).map((d,i)=>{
-            if(!d)return<div key={"e"+i} className="mini-cal-day empty"/>;
-            const isToday=d.toDateString()===today.toDateString();
-            const isSel=selDay&&d.toDateString()===selDay.toDateString();
-            const hasItems=itemsOnDay(d).length>0;
-            return(<div key={i} className={"mini-cal-day"+(isToday?" today":"")+(isSel?" sel":"")+(hasItems?" has-evt":"")} onClick={()=>setSelDay(isSel?null:d)}>{d.getDate()}</div>);
-          })}
-        </div>
-      </div>
+      <MiniCalendar reminders={data.reminders} cobrancas={data.cobrancas} selDay={selDay} onDayClick={setSelDay}/>
 
       {selDay&&(<div style={{background:"var(--s2)",border:"1px solid var(--b1)",borderRadius:"var(--r14)",padding:14}}>
         <div style={{fontSize:11,fontWeight:700,color:"var(--mut)",letterSpacing:.5,textTransform:"uppercase",marginBottom:10}}>
