@@ -111,10 +111,10 @@ const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Fira+Code:wght@300;400;500&display=swap');
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --bg:#1a1d2e;--s1:#212438;--s2:#272b42;--s3:#2f344f;--s4:#373c5c;
-  --b1:#3a3f60;--b2:#4a5080;
+  --bg:#1e2235;--s1:#252840;--s2:#2e3250;--s3:#363b5e;--s4:#404570;
+  --b1:#454a72;--b2:#565c88;
   --ac:#5b8af0;--ag:#3dd68c;--ap:#e06bf0;--aw:#f0b84a;--ar:#f06b6b;
-  --tx:#e8ecf8;--sub:#9aa0c0;--mut:#5a6080;
+  --tx:#eef0fa;--sub:#a0a8c8;--mut:#666c90;
   --r6:6px;--r10:10px;--r14:14px;
 }
 html,body,#root{height:100%;overflow:hidden}
@@ -470,31 +470,74 @@ function LoginScreen() {
 }
 
 // ── Panels (outside App to prevent re-mount on state change) ──────────────────
-function Dash() {
-  const {data,setTab,dueAlerts,pending,upcoming,cbPending}=useContext(NexusCtx);
-  const [calView,setCalView]=useState(()=>new Date());
-  const [selDay,setSelDay]=useState(null);
-  const MONTHS_BR=["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
-  const DAYS_BR=["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
-  const today=new Date();
+// ── Shared Mini Calendar Component ───────────────────────────────────────────
+const MONTHS_BR=["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
+const DAYS_BR_S=["D","S","T","Q","Q","S","S"];
 
-  const getDaysInMonth=(d)=>{
+function MiniCalendar({events=[], reminders=[], cobrancas=[], onDayClick, selDay}) {
+  const [calView,setCalView]=useState(()=>new Date());
+  const today=new Date(); today.setHours(0,0,0,0);
+
+  const getDays=(d)=>{
     const y=d.getFullYear(),m=d.getMonth();
     const first=new Date(y,m,1).getDay(),total=new Date(y,m+1,0).getDate();
-    const days=[];for(let i=0;i<first;i++)days.push(null);
+    const days=[];
+    for(let i=0;i<first;i++)days.push(null);
     for(let i=1;i<=total;i++)days.push(new Date(y,m,i));
     return days;
   };
 
-  // Items that have dates — reminders + cobrancas + reunioes
+  const itemsOnDay=(d)=>{
+    if(!d) return [];
+    const ds=d.toDateString();
+    const rems=(reminders||[]).filter(r=>r.date&&new Date(r.date).toDateString()===ds);
+    const cobs=(cobrancas||[]).filter(c=>c.date&&new Date(c.date).toDateString()===ds);
+    const evts=(events||[]).filter(e=>{
+      const es=e.start?.dateTime||e.start?.date;
+      if(!es) return false;
+      return new Date(es).toDateString()===ds;
+    });
+    return[
+      ...rems.map(r=>({label:r.text,type:"rem",color:"var(--ag)"})),
+      ...cobs.map(c=>({label:c.pessoa+" — "+c.tarefa,type:"cob",color:"var(--ar)"})),
+      ...evts.map(e=>({label:e.summary||"Evento",type:"evt",color:"var(--ac)"})),
+    ];
+  };
+
+  return(<div className="mini-cal">
+    <div className="mini-cal-header">
+      <button className="mini-cal-nav" onClick={()=>setCalView(d=>new Date(d.getFullYear(),d.getMonth()-1,1))}>‹</button>
+      <div className="mini-cal-month">{MONTHS_BR[calView.getMonth()]} {calView.getFullYear()}</div>
+      <button className="mini-cal-nav" onClick={()=>setCalView(d=>new Date(d.getFullYear(),d.getMonth()+1,1))}>›</button>
+    </div>
+    <div className="mini-cal-grid">
+      {DAYS_BR_S.map((d,i)=><div key={i} className="mini-cal-dh">{d}</div>)}
+      {getDays(calView).map((d,i)=>{
+        if(!d) return <div key={"e"+i} className="mini-cal-day empty"/>;
+        const isToday=d.getTime()===today.getTime();
+        const isSel=selDay&&d.toDateString()===selDay.toDateString();
+        const its=itemsOnDay(d);
+        return(<div key={i} className={"mini-cal-day"+(isToday?" today":"")+(isSel?" sel":"")} onClick={()=>onDayClick&&onDayClick(isSel?null:d)} style={{cursor:"pointer"}}>
+          <span>{d.getDate()}</span>
+          {its.length>0&&<div style={{display:"flex",gap:2,flexWrap:"wrap",justifyContent:"center"}}>
+            {its.slice(0,3).map((it,j)=><div key={j} style={{width:4,height:4,borderRadius:"50%",background:it.color}}/>)}
+          </div>}
+        </div>);
+      })}
+    </div>
+  </div>);
+}
+
+function Dash() {
+  const {data,setTab,dueAlerts,pending,upcoming,cbPending}=useContext(NexusCtx);
+  const [selDay,setSelDay]=useState(null);
   const itemsOnDay=(d)=>{
     if(!d) return [];
     const ds=d.toDateString();
     const rems=(data.reminders||[]).filter(r=>r.date&&new Date(r.date).toDateString()===ds);
     const cobs=(data.cobrancas||[]).filter(c=>c.date&&new Date(c.date).toDateString()===ds);
-    return [...rems.map(r=>({label:r.text,type:"rem"})),...cobs.map(c=>({label:c.pessoa+" — "+c.tarefa,type:"cob"}))];
+    return [...rems.map(r=>({label:r.text,type:"rem",color:"var(--ag)"})),...cobs.map(c=>({label:c.pessoa+" — "+c.tarefa,type:"cob",color:"var(--ar)"}))];
   };
-
   const selDayItems=selDay?itemsOnDay(selDay):[];
 
   return(<div style={{display:"grid",gridTemplateColumns:"1fr 300px",gap:20,alignItems:"start"}}>
@@ -812,32 +855,16 @@ function Config() {
     alert(newAccs.length>0?`${newAccs.length} nova(s) agenda(s) adicionada(s) ao Nexus! ✅`:"Todas as agendas já estavam sincronizadas. ✅");
   };
 
-  const [calView,setCalView]=useState(()=>new Date());
   const [selDay,setSelDay]=useState(null);
-
-  const getDaysInMonth=(d)=>{
-    const y=d.getFullYear(),m=d.getMonth();
-    const first=new Date(y,m,1).getDay(),total=new Date(y,m+1,0).getDate();
-    const days=[];
-    for(let i=0;i<first;i++)days.push(null);
-    for(let i=1;i<=total;i++)days.push(new Date(y,m,i));
-    return days;
-  };
-
   const eventsOnDay=(d)=>{
     if(!d)return[];
     return events.filter(e=>{
       const es=e.start?.dateTime||e.start?.date;
       if(!es)return false;
-      const ed=new Date(es);
-      return ed.getFullYear()===d.getFullYear()&&ed.getMonth()===d.getMonth()&&ed.getDate()===d.getDate();
+      return new Date(es).toDateString()===d.toDateString();
     });
   };
-
   const selDayEvents=selDay?eventsOnDay(selDay):[];
-  const todayD=new Date();
-  const MONTHS_BR=["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
-  const DAYS_BR=["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
 
   return(<div>
     <div className="ph">
@@ -877,23 +904,9 @@ function Config() {
             <div className="gcal-cal-name">{cal.summary}</div>
           </div>))}
           
-          {/* Mini Calendar */}
-          <div className="mini-cal" style={{marginTop:12}}>
-            <div className="mini-cal-header">
-              <button className="mini-cal-nav" onClick={()=>setCalView(d=>new Date(d.getFullYear(),d.getMonth()-1,1))}>‹</button>
-              <div className="mini-cal-month">{MONTHS_BR[calView.getMonth()]} {calView.getFullYear()}</div>
-              <button className="mini-cal-nav" onClick={()=>setCalView(d=>new Date(d.getFullYear(),d.getMonth()+1,1))}>›</button>
-            </div>
-            <div className="mini-cal-grid">
-              {DAYS_BR.map(d=><div key={d} className="mini-cal-dh">{d[0]}</div>)}
-              {getDaysInMonth(calView).map((d,i)=>{
-                if(!d)return<div key={"e"+i} className="mini-cal-day empty"/>;
-                const isToday=d.toDateString()===todayD.toDateString();
-                const isSel=selDay&&d.toDateString()===selDay.toDateString();
-                const hasEvt=eventsOnDay(d).length>0;
-                return(<div key={i} className={"mini-cal-day"+(isToday?" today":"")+(isSel?" sel":"")+(hasEvt?" has-evt":"")} onClick={()=>setSelDay(isSel?null:d)}>{d.getDate()}</div>);
-              })}
-            </div>
+          {/* Mini Calendar — shared component */}
+          <div style={{marginTop:12}}>
+            <MiniCalendar events={events} selDay={selDay} onDayClick={(d)=>{setSelDay(d);}}/>
           </div>
         </div>
 
@@ -1155,13 +1168,13 @@ export default function App() {
     const toDate=(v)=>v?new Date(v).toISOString():null;
     const items=(Array.isArray(val)?val:[]).map(item=>{
       if(key==="tasks") return {id:item.id,user_id:userId,text:item.text,prio:item.prio,done:!!item.done,atribuido_por:item.atribuido_por||null,created_at:toDate(item.created)||now};
-      if(key==="reminders") return {id:item.id,user_id:userId,text:item.text,date:toDate(item.date),created_at:toDate(item.created)||now};
+      if(key==="reminders") return {id:item.id,user_id:userId,text:item.text,date:item.date?new Date(item.date).toISOString():null,created_at:toDate(item.created)||now};
       if(key==="cobrancas") return {id:item.id,user_id:userId,pessoa:item.pessoa,tarefa:item.tarefa,date:toDate(item.date),prio:item.prio,status:item.status,dias_aviso:Number(item.diasAviso||1),created_at:toDate(item.created)||now};
       if(key==="notes") return {id:item.id,user_id:userId,title:item.title||"",body:item.body||"",created_at:toDate(item.created)||now,updated_at:toDate(item.updated)||now};
       if(key==="reunioes") return {id:item.id,user_id:userId,title:item.title,participantes:item.participantes||"",texto:item.texto||"",created_at:toDate(item.created)||now};
       if(key==="rotina") return {id:item.id,user_id:userId,hora:item.hora,titulo:item.titulo,categoria:item.categoria};
       if(key==="habitos") return {id:item.id,user_id:userId,nome:item.nome,icon:item.icon};
-      if(key==="gcalAccounts") return {id:item.id,user_id:userId,nome:item.name||item.nome||"",email:item.email,color:item.color||"#5b8af0"};
+      if(key==="gcalAccounts") return {id:item.id,user_id:userId,nome:item.name||item.nome||"Agenda",email:item.email||"",color:item.color||"#5b8af0"};
       return item;
     });
     // Get current IDs in DB, delete removed ones, upsert remaining
