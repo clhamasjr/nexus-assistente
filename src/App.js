@@ -602,14 +602,12 @@ function Config() {
   const [creatingEvt,setCreatingEvt]=useState(false);
   const [configTab,setConfigTab]=useState("agenda");
 
-  // Check if already have token on mount
-  useEffect(()=>{
-    setGapiReady(true);
-    if(_gcalToken&&_gcalToken.expires_at>Date.now()){
-      setGcalSigned(true);
-      loadCalendars();
-    }
-  },[]);
+  const loadEvents=async(calId)=>{
+    setLoadingEvts(true);
+    try{ const evts=await gcalListEvents(calId,30); setEvents(evts); }
+    catch(e){console.error(e);}
+    setLoadingEvts(false);
+  };
 
   const loadCalendars=async()=>{
     setLoadingCals(true);
@@ -619,15 +617,17 @@ function Config() {
       if(cals.length>0){setSelCal(cals[0].id);loadEvents(cals[0].id);}
     }catch(e){console.error(e);}
     setLoadingCals(false);
-    // NOTE: Never auto-sync here — user must click ↻ Sync manually
   };
 
-  const loadEvents=async(calId)=>{
-    setLoadingEvts(true);
-    try{ const evts=await gcalListEvents(calId,30); setEvents(evts); }
-    catch(e){console.error(e);}
-    setLoadingEvts(false);
-  };
+  // Check if already have token on mount
+  useEffect(()=>{
+    setGapiReady(true);
+    if(_gcalToken&&_gcalToken.expires_at>Date.now()){
+      setGcalSigned(true);
+      loadCalendars();
+    }
+  // eslint-disable-next-line
+  },[]);
 
   const handleSignIn=async()=>{
     try{
