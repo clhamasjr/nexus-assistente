@@ -12,11 +12,12 @@ const sb = createClient(SUPA_URL, SUPA_KEY);
 const GCAL_CLIENT_ID = "188108397931-rb06rvfof53tsbhd9c3sjokduoe2538n.apps.googleusercontent.com";
 const GCAL_SCOPE = "https://www.googleapis.com/auth/calendar";
 
-// Persist token across page refreshes using sessionStorage
-const _loadToken = () => { try { const t=sessionStorage.getItem("_gcalToken"); return t?JSON.parse(t):null; } catch{return null;} };
-const _saveToken = (t) => { try { sessionStorage.setItem("_gcalToken", JSON.stringify(t)); } catch{} };
-const _clearToken = () => { try { sessionStorage.removeItem("_gcalToken"); } catch{} };
-let _gcalToken = _loadToken();
+// Per-account token map: { email -> {access_token, expires_at} }
+const _loadTokens = () => { try { const t=sessionStorage.getItem("_gcalTokens"); return t?JSON.parse(t):{}; } catch{return {};} };
+const _saveTokens = (m) => { try { sessionStorage.setItem("_gcalTokens",JSON.stringify(m)); } catch{} };
+let _gcalTokens = _loadTokens();
+let _gcalToken = Object.values(_gcalTokens).find(t=>t.expires_at>Date.now())||null; // legacy compat
+let _activeEmail = Object.keys(_gcalTokens).find(e=>_gcalTokens[e]===_gcalToken)||null;
 
 const loadGapiClient = () => new Promise((resolve) => {
   if (window.gapi && window.gapi.client && window.gapi.client.calendar) { resolve(); return; }
@@ -38,17 +39,27 @@ const loadGIS = () => new Promise((resolve) => {
   document.head.appendChild(s);
 });
 
-const gcalGetToken = (forceNew=false) => new Promise(async (resolve, reject) => {
+const gcalGetToken = (forceNew=false, loginHint="") => new Promise(async (resolve, reject) => {
   await loadGIS();
   await loadGapiClient();
-  if (!forceNew && _gcalToken && _gcalToken.expires_at > Date.now()) { resolve(_gcalToken.access_token); return; }
+  // Use cached token for this account if available
+  if (!forceNew && loginHint && _gcalTokens[loginHint] && _gcalTokens[loginHint].expires_at > Date.now()) {
+    _gcalToken = _gcalTokens[loginHint]; _activeEmail = loginHint;
+    window.gapi.client.setToken({ access_token: _gcalToken.access_token });
+    resolve(_gcalToken.access_token); return;
+  }
+  if (!forceNew && !loginHint && _gcalToken && _gcalToken.expires_at > Date.now()) { resolve(_gcalToken.access_token); return; }
   const client = window.google.accounts.oauth2.initTokenClient({
     client_id: GCAL_CLIENT_ID,
     scope: GCAL_SCOPE,
+    login_hint: loginHint||"",
     callback: (resp) => {
       if (resp.error) { reject(new Error(resp.error)); return; }
-      _gcalToken = { access_token: resp.access_token, expires_at: Date.now() + (resp.expires_in - 60) * 1000 };
-      _saveToken(_gcalToken);
+      const tok = { access_token: resp.access_token, expires_at: Date.now() + (resp.expires_in - 60) * 1000 };
+      _gcalToken = tok;
+      if(loginHint){ _gcalTokens[loginHint]=tok; _activeEmail=loginHint; } 
+      else { _activeEmail=null; }
+      _saveTokens(_gcalTokens);
       window.gapi.client.setToken({ access_token: resp.access_token });
       resolve(resp.access_token);
     },
@@ -56,17 +67,17 @@ const gcalGetToken = (forceNew=false) => new Promise(async (resolve, reject) => 
   client.requestAccessToken({ prompt: forceNew ? "select_account" : "" });
 });
 
-const gcalListEvents = async (calendarId="primary", maxResults=20) => {
-  await gcalGetToken();
+const gcalListEvents = async (calendarId="primary", maxResults=20, loginHint="") => {
+  await gcalGetToken(false, loginHint);
   const now = new Date().toISOString();
   const res = await window.gapi.client.calendar.events.list({ calendarId, timeMin: now, maxResults, singleEvents: true, orderBy: "startTime" });
   return res.result.items || [];
 };
 
-const gcalListCalendars = async () => {
-  await gcalGetToken();
+const gcalListCalendars = async (loginHint="") => {
+  await gcalGetToken(false, loginHint);
   const res = await window.gapi.client.calendar.calendarList.list();
-  return res.result.items || [];
+  return (res.result.items || []).map(c=>({...c, _account: loginHint}));
 };
 
 const gcalCreateEvent = async (calendarId, title, description, startISO, endISO) => {
@@ -76,11 +87,9 @@ const gcalCreateEvent = async (calendarId, title, description, startISO, endISO)
 };
 
 const gcalSignOut = () => {
-  if (_gcalToken && _gcalToken.access_token) {
-    try { window.google.accounts.oauth2.revoke(_gcalToken.access_token); } catch(e) {}
-  }
-  _gcalToken = null;
-  _clearToken();
+  Object.values(_gcalTokens).forEach(t=>{ try{ window.google.accounts.oauth2.revoke(t.access_token); }catch{} });
+  _gcalToken = null; _gcalTokens = {}; _activeEmail = null;
+  try{ sessionStorage.removeItem("_gcalTokens"); }catch{}
   if (window.gapi && window.gapi.client) window.gapi.client.setToken(null);
 };
 
@@ -818,16 +827,35 @@ function Config() {
 
   const handleSignIn=async(forceNew=false)=>{
     try{
+      // 1. Get token (shows account picker if forceNew)
       await gcalGetToken(forceNew);
       setGcalSigned(true);
-      // Merge new calendars with existing ones
-      const cals=await gcalListCalendars();
+
+      // 2. Discover which email just logged in via primary calendar
+      await loadGapiClient();
+      const settingsRes = await window.gapi.client.calendar.calendarList.list({minAccessRole:"owner",maxResults:1});
+      const primaryCal = (settingsRes.result.items||[]).find(c=>c.primary);
+      const accountEmail = primaryCal?.id || _activeEmail || "";
+
+      // 3. Store token keyed by email
+      if(accountEmail && _gcalToken){
+        _gcalTokens[accountEmail] = _gcalToken;
+        _activeEmail = accountEmail;
+        _saveTokens(_gcalTokens);
+      }
+
+      // 4. Fetch ALL calendars for this account and merge
+      const cals = await gcalListCalendars(accountEmail);
       setCalendars(prev=>{
         const merged=[...prev];
-        cals.forEach(c=>{ if(!merged.find(x=>x.id===c.id)) merged.push(c); });
+        cals.forEach(c=>{
+          const idx=merged.findIndex(x=>x.id===c.id);
+          if(idx===-1) merged.push(c); else merged[idx]=c;
+        });
         return merged;
       });
-      if(cals.length>0){ setSelCal(cals[0].id); loadEvents(cals[0].id); }
+
+      if(cals.length>0){ setSelCal(cals[0].id); }
     }catch(e){console.error("GCal signin error",e);}
   };
 
