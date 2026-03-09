@@ -624,6 +624,7 @@ function Config() {
       if(cals.length>0){setSelCal(cals[0].id);loadEvents(cals[0].id);}
     }catch(e){console.error(e);}
     setLoadingCals(false);
+    // NOTE: Never auto-sync here — user must click ↻ Sync manually
   };
 
   const loadEvents=async(calId)=>{
@@ -635,7 +636,16 @@ function Config() {
 
   const handleSignIn=async()=>{
     try{
+      // Extra protection: backup Supabase keys to sessionStorage
+      const supaKeys = Object.keys(localStorage).filter(k => k.includes("supabase") || k.includes("nexus"));
+      const supaBackup = {};
+      supaKeys.forEach(k => { supaBackup[k] = localStorage.getItem(k); sessionStorage.setItem("_bk_"+k, localStorage.getItem(k)); });
+      
       await gcalGetToken();
+      
+      // Restore any lost keys
+      supaKeys.forEach(k => { if (!localStorage.getItem(k) && supaBackup[k]) localStorage.setItem(k, supaBackup[k]); });
+      
       setGcalSigned(true);
       loadCalendars();
     }catch(e){console.error("GCal signin error",e);}
@@ -673,9 +683,13 @@ function Config() {
 
   // Sync calendars to Nexus accounts
   const syncToNexus=()=>{
-    const accs=calendars.map((c,i)=>({id:c.id,name:c.summary,email:c.id,color:c.backgroundColor||ACCOUNT_COLORS[i%ACCOUNT_COLORS.length]}));
-    upd("gcalAccounts",accs);
-    alert(`${accs.length} agendas sincronizadas com o Nexus! ✅`);
+    const existing=data.gcalAccounts||[];
+    const newAccs=calendars
+      .filter(c=>!existing.some(e=>e.email===c.id||e.email===c.summary))
+      .map((c,i)=>({id:c.id,name:c.summary,email:c.id,color:c.backgroundColor||ACCOUNT_COLORS[(existing.length+i)%ACCOUNT_COLORS.length]}));
+    const merged=[...existing,...newAccs];
+    upd("gcalAccounts",merged);
+    alert(newAccs.length>0?`${newAccs.length} nova(s) agenda(s) adicionada(s) ao Nexus! ✅`:"Todas as agendas já estavam sincronizadas. ✅");
   };
 
   return(<div>
