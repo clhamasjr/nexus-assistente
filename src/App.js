@@ -33,10 +33,10 @@ const loadGIS = () => new Promise((resolve) => {
   document.head.appendChild(s);
 });
 
-const gcalGetToken = () => new Promise(async (resolve, reject) => {
+const gcalGetToken = (forceNew=false) => new Promise(async (resolve, reject) => {
   await loadGIS();
   await loadGapiClient();
-  if (_gcalToken && _gcalToken.expires_at > Date.now()) { resolve(_gcalToken.access_token); return; }
+  if (!forceNew && _gcalToken && _gcalToken.expires_at > Date.now()) { resolve(_gcalToken.access_token); return; }
   const client = window.google.accounts.oauth2.initTokenClient({
     client_id: GCAL_CLIENT_ID,
     scope: GCAL_SCOPE,
@@ -47,7 +47,7 @@ const gcalGetToken = () => new Promise(async (resolve, reject) => {
       resolve(resp.access_token);
     },
   });
-  client.requestAccessToken({ prompt: "" });
+  client.requestAccessToken({ prompt: forceNew ? "select_account" : "" });
 });
 
 const gcalListEvents = async (calendarId="primary", maxResults=20) => {
@@ -781,20 +781,18 @@ function Config() {
   // eslint-disable-next-line
   },[]);
 
-  const handleSignIn=async()=>{
+  const handleSignIn=async(forceNew=false)=>{
     try{
-      // Extra protection: backup Supabase keys to sessionStorage
-      const supaKeys = Object.keys(localStorage).filter(k => k.includes("supabase") || k.includes("nexus"));
-      const supaBackup = {};
-      supaKeys.forEach(k => { supaBackup[k] = localStorage.getItem(k); sessionStorage.setItem("_bk_"+k, localStorage.getItem(k)); });
-      
-      await gcalGetToken();
-      
-      // Restore any lost keys
-      supaKeys.forEach(k => { if (!localStorage.getItem(k) && supaBackup[k]) localStorage.setItem(k, supaBackup[k]); });
-      
+      await gcalGetToken(forceNew);
       setGcalSigned(true);
-      loadCalendars();
+      // Merge new calendars with existing ones
+      const cals=await gcalListCalendars();
+      setCalendars(prev=>{
+        const merged=[...prev];
+        cals.forEach(c=>{ if(!merged.find(x=>x.id===c.id)) merged.push(c); });
+        return merged;
+      });
+      if(cals.length>0){ setSelCal(cals[0].id); loadEvents(cals[0].id); }
     }catch(e){console.error("GCal signin error",e);}
   };
 
@@ -855,7 +853,7 @@ function Config() {
       <div><div className="pt">Google Agenda 📅</div><div className="ps">{gcalSigned?"Google conectado ✓":"Conecte sua conta Google"}</div></div>
       {gcalSigned&&<div style={{display:"flex",gap:8}}>
         <button className="btn bsec bsm" onClick={syncToNexus} title="Sincronizar agendas">↻ Sync</button>
-        <button className="btn bsec bsm" onClick={handleSignIn} title="Adicionar outra conta">+ Conta</button>
+        <button className="btn bsec bsm" onClick={()=>handleSignIn(true)} title="Adicionar outra conta">+ Conta</button>
         <button className="btn bdng bsm" onClick={handleSignOut}>Desconectar</button>
       </div>}
     </div>
