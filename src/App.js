@@ -69,8 +69,10 @@ const gcalGetToken = (forceNew=false, loginHint="") => new Promise(async (resolv
 
 const gcalListEvents = async (calendarId="primary", maxResults=20, loginHint="") => {
   await gcalGetToken(false, loginHint);
+  // If calendarId is the account's own email, use "primary" 
+  const effectiveId = (loginHint && calendarId === loginHint) ? "primary" : calendarId;
   const now = new Date().toISOString();
-  const res = await window.gapi.client.calendar.events.list({ calendarId, timeMin: now, maxResults, singleEvents: true, orderBy: "startTime" });
+  const res = await window.gapi.client.calendar.events.list({ calendarId: effectiveId, timeMin: now, maxResults, singleEvents: true, orderBy: "startTime" });
   return res.result.items || [];
 };
 
@@ -804,9 +806,23 @@ function Config() {
   const loadCalendars=async()=>{
     setLoadingCals(true);
     try{
-      const cals=await gcalListCalendars();
-      setCalendars(cals);
-      if(cals.length>0){setSelCal(cals[0].id);loadEvents(cals[0].id);}
+      // Load calendars for ALL saved accounts
+      const validAccounts=Object.keys(_gcalTokens).filter(e=>_gcalTokens[e].expires_at>Date.now());
+      if(validAccounts.length===0){
+        const cals=await gcalListCalendars();
+        setCalendars(cals);
+        if(cals.length>0){setSelCal(cals[0].id);loadEvents(cals[0].id);}
+      } else {
+        let merged=[];
+        for(const email of validAccounts){
+          try{
+            const cals=await gcalListCalendars(email);
+            cals.forEach(c=>{if(!merged.find(x=>x.id===c.id))merged.push(c);});
+          }catch(e){console.error("loadCalendars for",email,e);}
+        }
+        setCalendars(merged);
+        if(merged.length>0){setSelCal(merged[0].id);loadEvents(merged[0].id);}
+      }
     }catch(e){console.error(e);}
     setLoadingCals(false);
   };
@@ -814,13 +830,12 @@ function Config() {
   // Restore tokens and reload calendars on mount
   useEffect(()=>{
     setGapiReady(true);
-    const validAccounts = Object.keys(_gcalTokens).filter(e=>_gcalTokens[e].expires_at>Date.now());
+    const validAccounts=Object.keys(_gcalTokens).filter(e=>_gcalTokens[e].expires_at>Date.now());
     if(validAccounts.length>0){
       setGcalSigned(true);
       loadGapiClient().then(()=>{
-        // Set first valid token so gapi is ready
-        const firstTok = _gcalTokens[validAccounts[0]];
-        if(window.gapi?.client) window.gapi.client.setToken({access_token:firstTok.access_token});
+        // Set first token so gapi is initialized
+        window.gapi?.client?.setToken({access_token:_gcalTokens[validAccounts[0]].access_token});
         loadCalendars();
       });
     }
