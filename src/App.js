@@ -829,24 +829,36 @@ function Config() {
 
   const handleSignIn=async(forceNew=false)=>{
     try{
-      // 1. Get token (shows account picker if forceNew)
+      // 1. Get token
       await gcalGetToken(forceNew);
       setGcalSigned(true);
-
-      // 2. Discover which email just logged in via primary calendar
       await loadGapiClient();
-      const settingsRes = await window.gapi.client.calendar.calendarList.list({minAccessRole:"owner",maxResults:1});
-      const primaryCal = (settingsRes.result.items||[]).find(c=>c.primary);
-      const accountEmail = primaryCal?.id || _activeEmail || "";
 
-      // 3. Store token keyed by email
-      if(accountEmail && _gcalToken){
-        _gcalTokens[accountEmail] = _gcalToken;
-        _activeEmail = accountEmail;
-        _saveTokens(_gcalTokens);
+      // 2. Get the real email via tokeninfo API
+      let accountEmail = "";
+      try{
+        const tok = _gcalToken?.access_token;
+        const infoRes = await fetch(`https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=${tok}`);
+        const info = await infoRes.json();
+        accountEmail = info.email || "";
+      }catch{}
+
+      // Fallback: use primary calendar id
+      if(!accountEmail){
+        const settingsRes = await window.gapi.client.calendar.calendarList.list({minAccessRole:"owner",maxResults:5});
+        const primaryCal = (settingsRes.result.items||[]).find(c=>c.primary);
+        accountEmail = primaryCal?.id || "";
       }
 
-      // 4. Fetch ALL calendars for this account and merge
+      // 3. Store token keyed by this email
+      if(accountEmail && _gcalToken){
+        _gcalTokens[accountEmail] = {..._gcalToken, email: accountEmail};
+        _activeEmail = accountEmail;
+        _saveTokens(_gcalTokens);
+        console.log("Saved token for:", accountEmail, "Total accounts:", Object.keys(_gcalTokens));
+      }
+
+      // 4. Fetch calendars for this account and merge
       const cals = await gcalListCalendars(accountEmail);
       setCalendars(prev=>{
         const merged=[...prev];
@@ -1110,132 +1122,193 @@ const BACKEND_URL = "https://nexus-backend-production-e311.up.railway.app";
 
 function Emails() {
   const {session} = useContext(NexusCtx);
-  const [emails, setEmails] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [analyzing, setAnalyzing] = useState(null);
-  const [error, setError] = useState(null);
+  // accounts: [{id, label, host, port, user, pass}]
+  const [accounts, setAccounts] = useState(()=>{
+    try{ return JSON.parse(localStorage.getItem("_imapAccounts")||"[]"); }catch{ return []; }
+  });
+  const [activeAcc, setActiveAcc] = useState(null);
+  const [emails, setEmails] = useState({}); // {accId: [...]}
+  const [loading, setLoading] = useState({});
+  const [scanning, setScanning] = useState(false);
+  const [scanLog, setScanLog] = useState([]);
+  const [error, setError] = useState({});
   const [selEmail, setSelEmail] = useState(null);
   const [toast, setToast] = useState(null);
+  const [showAdd, setShowAdd] = useState(false);
+  const [newAcc, setNewAcc] = useState({label:"",host:"",port:"993",user:"",pass:""});
+  const [processed, setProcessed] = useState(()=>{ try{return JSON.parse(sessionStorage.getItem("_emailProcessed")||"[]");}catch{return [];} });
 
-  const showToast = (msg, ok=true) => { setToast({msg,ok}); setTimeout(()=>setToast(null),3500); };
+  const showToast = (msg, ok=true) => { setToast({msg,ok}); setTimeout(()=>setToast(null),4000); };
+  const markProcessed = (id) => { setProcessed(prev=>{ const n=[...prev,id]; sessionStorage.setItem("_emailProcessed",JSON.stringify(n)); return n; }); };
 
-  const fetchEmails = async () => {
-    setLoading(true); setError(null);
+  const saveAccounts = (accs) => { setAccounts(accs); localStorage.setItem("_imapAccounts", JSON.stringify(accs)); };
+
+  const addAccount = () => {
+    if(!newAcc.host||!newAcc.user||!newAcc.pass){ showToast("Preencha todos os campos obrigatórios.",false); return; }
+    const acc = {...newAcc, id: uid(), port: Number(newAcc.port||993), label: newAcc.label||newAcc.user};
+    const updated = [...accounts, acc];
+    saveAccounts(updated);
+    setActiveAcc(acc.id);
+    setShowAdd(false);
+    setNewAcc({label:"",host:"",port:"993",user:"",pass:""});
+    fetchEmails(acc);
+  };
+
+  const removeAccount = (id) => {
+    const updated = accounts.filter(a=>a.id!==id);
+    saveAccounts(updated);
+    if(activeAcc===id) setActiveAcc(updated[0]?.id||null);
+    setEmails(e=>{ const n={...e}; delete n[id]; return n; });
+  };
+
+  const fetchEmails = async (acc) => {
+    if(!acc) return;
+    setLoading(l=>({...l,[acc.id]:true}));
+    setError(e=>({...e,[acc.id]:null}));
     try {
       const res = await fetch(BACKEND_URL+"/emails/fetch", {
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({limit:40})
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({host:acc.host, port:acc.port, user:acc.user, password:acc.pass, limit:40})
       });
       const d = await res.json();
       if(d.error) throw new Error(d.error);
-      setEmails(d.emails||[]);
-    } catch(e) { setError(e.message); }
-    setLoading(false);
+      setEmails(e=>({...e,[acc.id]:d.emails||[]}));
+    } catch(e) { setError(er=>({...er,[acc.id]:e.message})); }
+    setLoading(l=>({...l,[acc.id]:false}));
   };
 
-  useEffect(()=>{ fetchEmails(); },[]);
+  // Load default lhamascred account if no accounts saved
+  useEffect(()=>{
+    if(accounts.length===0){
+      const def = {id:"default", label:"carlos@lhamascred.com.br", host:"", port:993, user:"", pass:""};
+      // Use backend env vars (empty creds = use server defaults)
+      setAccounts([def]); setActiveAcc("default");
+      fetchEmails(def);
+    } else {
+      if(!activeAcc) setActiveAcc(accounts[0].id);
+      accounts.forEach(a=>{ if(!emails[a.id]) fetchEmails(a); });
+    }
+  // eslint-disable-next-line
+  },[]);
 
-  const analyzeAndCreate = async (email) => {
-    setAnalyzing(email.id);
-    try {
-      const prompt = `Analise este e-mail e extraia informações de compromisso/evento se houver.
-Responda APENAS em JSON sem markdown:
-{"is_appointment": true/false, "title": "...", "date": "YYYY-MM-DDTHH:mm:ss", "location": "...", "description": "..."}
-Se não for compromisso, retorne {"is_appointment": false}.
-
+  const autoScan = async () => {
+    const token = _gcalToken?.access_token;
+    if(!token) { showToast("Conecte o Google Agenda primeiro.", false); return; }
+    const allEmails = Object.values(emails).flat();
+    if(!allEmails.length) { showToast("Carregue os e-mails primeiro.", false); return; }
+    setScanning(true); setScanLog([]);
+    let created=0, skipped=0;
+    for(const email of allEmails){
+      if(processed.includes(email.id)){ skipped++; continue; }
+      setScanLog(l=>[...l,`Analisando: ${email.subject.slice(0,50)}...`]);
+      try{
+        const prompt = `Analise este e-mail. É um compromisso/evento com data?
+JSON apenas, sem markdown: {"is_appointment":true/false,"title":"...","date":"YYYY-MM-DDTHH:mm:ss","location":"...","description":"..."}
+Se não houver data clara retorne {"is_appointment":false}.
 De: ${email.from}
 Assunto: ${email.subject}
-Corpo: ${(email.text||"").slice(0,1500)}`;
-
-      const resp = await fetch("https://api.anthropic.com/v1/messages", {
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({
-          model:"claude-sonnet-4-20250514",
-          max_tokens:400,
-          messages:[{role:"user",content:prompt}]
-        })
-      });
-      const ai = await resp.json();
-      const text = ai.content?.[0]?.text||"";
-      let info;
-      try { info = JSON.parse(text.replace(/```json|```/g,"").trim()); }
-      catch { throw new Error("IA não retornou JSON válido"); }
-
-      if(!info.is_appointment) {
-        showToast("Este e-mail não parece ser um compromisso.", false);
-        setAnalyzing(null); return;
-      }
-
-      const token = _gcalToken?.access_token;
-      if(!token) { showToast("Conecte o Google Agenda primeiro (painel Agenda).", false); setAnalyzing(null); return; }
-
-      const start = info.date ? new Date(info.date) : new Date();
-      const end = new Date(start.getTime() + 60*60*1000);
-      const event = {
-        summary: info.title || email.subject,
-        description: info.description || `E-mail de: ${email.from}\n\n${(email.text||"").slice(0,500)}`,
-        location: info.location || "",
-        start: { dateTime: start.toISOString(), timeZone: "America/Sao_Paulo" },
-        end: { dateTime: end.toISOString(), timeZone: "America/Sao_Paulo" },
-      };
-
-      const gcalRes = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events", {
-        method:"POST",
-        headers:{"Authorization":"Bearer "+token,"Content-Type":"application/json"},
-        body: JSON.stringify(event)
-      });
-      if(!gcalRes.ok) throw new Error("Erro ao criar evento no Google Agenda");
-      showToast("✓ Evento criado: "+event.summary);
-    } catch(e) { showToast(e.message, false); }
-    setAnalyzing(null);
+Corpo: ${(email.text||"").slice(0,800)}`;
+        const resp = await fetch("https://api.anthropic.com/v1/messages",{
+          method:"POST",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:300,messages:[{role:"user",content:prompt}]})
+        });
+        const ai = await resp.json();
+        const info = JSON.parse((ai.content?.[0]?.text||"{}").replace(/```json|```/g,"").trim());
+        markProcessed(email.id);
+        if(!info.is_appointment||isNaN(new Date(info.date))){ skipped++; continue; }
+        const start=new Date(info.date), end=new Date(start.getTime()+3600000);
+        const gcalRes = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events",{
+          method:"POST",headers:{"Authorization":"Bearer "+token,"Content-Type":"application/json"},
+          body:JSON.stringify({summary:info.title||email.subject,description:info.description||`De: ${email.from}`,location:info.location||"",
+            start:{dateTime:start.toISOString(),timeZone:"America/Sao_Paulo"},end:{dateTime:end.toISOString(),timeZone:"America/Sao_Paulo"}})
+        });
+        if(gcalRes.ok){ created++; setScanLog(l=>[...l,`✓ Criado: ${info.title||email.subject}`]); }
+      }catch{ setScanLog(l=>[...l,`⚠ Erro ao analisar`]); }
+      await new Promise(r=>setTimeout(r,600));
+    }
+    setScanning(false);
+    showToast(`✓ Scan: ${created} evento(s) criado(s), ${skipped} ignorado(s).`);
   };
+
+  const curAcc = accounts.find(a=>a.id===activeAcc);
+  const curEmails = emails[activeAcc]||[];
+  const curLoading = loading[activeAcc]||false;
+  const curError = error[activeAcc]||null;
 
   return(<div>
     <div className="ph" style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-      <div>
-        <div className="pt">📬 E-mails</div>
-        <div className="ps">carlos@lhamascred.com.br</div>
+      <div><div className="pt">📬 E-mails</div><div className="ps">{accounts.length} conta(s)</div></div>
+      <div style={{display:"flex",gap:8}}>
+        <button className="btn bsec bsm" onClick={()=>curAcc&&fetchEmails(curAcc)} disabled={curLoading||scanning}>↻ Atualizar</button>
+        <button className="btn bsec bsm" onClick={()=>setShowAdd(true)}>+ Conta</button>
+        <button className="btn bsm" onClick={autoScan} disabled={scanning||curLoading}>
+          {scanning?"✦ Escaneando...":"✦ Escanear tudo"}
+        </button>
       </div>
-      <button className="btn bsm" onClick={fetchEmails} disabled={loading}>{loading?"Carregando...":"↻ Atualizar"}</button>
     </div>
 
     {toast&&(<div style={{position:"fixed",top:20,right:20,zIndex:9999,background:toast.ok?"var(--ag)":"var(--ar)",color:"#fff",padding:"10px 18px",borderRadius:10,fontSize:13,fontWeight:600,boxShadow:"0 4px 20px rgba(0,0,0,.3)"}}>{toast.msg}</div>)}
-    {error&&<div style={{color:"var(--ar)",fontSize:13,margin:"10px 0",padding:"10px 14px",background:"rgba(220,53,69,.1)",borderRadius:8}}>⚠ {error}</div>}
+
+    {/* Add account modal */}
+    {showAdd&&(<div className="mov" onClick={()=>setShowAdd(false)}><div className="mod" onClick={e=>e.stopPropagation()}>
+      <div className="mh"><div className="mtt">Nova conta IMAP</div><button className="ib ibdel" onClick={()=>setShowAdd(false)}>✕</button></div>
+      <div><label>Nome / Etiqueta</label><input value={newAcc.label} onChange={e=>setNewAcc(x=>({...x,label:e.target.value}))} placeholder="Ex: Trabalho, Pessoal..."/></div>
+      <div><label>Servidor IMAP *</label><input value={newAcc.host} onChange={e=>setNewAcc(x=>({...x,host:e.target.value}))} placeholder="Ex: imap.gmail.com, mail.seudominio.com.br"/></div>
+      <div style={{display:"flex",gap:10}}>
+        <div style={{flex:3}}><label>E-mail *</label><input value={newAcc.user} onChange={e=>setNewAcc(x=>({...x,user:e.target.value}))} placeholder="seu@email.com"/></div>
+        <div style={{flex:1}}><label>Porta</label><input value={newAcc.port} onChange={e=>setNewAcc(x=>({...x,port:e.target.value}))} placeholder="993"/></div>
+      </div>
+      <div><label>Senha *</label><input type="password" value={newAcc.pass} onChange={e=>setNewAcc(x=>({...x,pass:e.target.value}))} placeholder="Senha do e-mail"/></div>
+      <div style={{background:"rgba(91,138,240,.08)",border:"1px solid rgba(91,138,240,.2)",borderRadius:8,padding:"10px 12px",fontSize:12,color:"var(--sub)"}}>
+        💡 Para Gmail use <strong>imap.gmail.com</strong> e uma <strong>senha de app</strong> (não a senha normal). Para Outlook use <strong>outlook.office365.com</strong>.
+      </div>
+      <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+        <button className="btn bsec bsm" onClick={()=>setShowAdd(false)}>Cancelar</button>
+        <button className="btn bsm" onClick={addAccount}>Conectar</button>
+      </div>
+    </div></div>)}
+
+    {/* Account tabs */}
+    {accounts.length>1&&(<div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap"}}>
+      {accounts.map(a=>(
+        <div key={a.id} style={{display:"flex",alignItems:"center",gap:4,padding:"5px 12px",borderRadius:20,border:"1px solid "+(activeAcc===a.id?"var(--ac)":"var(--b1)"),background:activeAcc===a.id?"rgba(91,138,240,.12)":"transparent",cursor:"pointer",fontSize:12}} onClick={()=>{setActiveAcc(a.id);setSelEmail(null);}}>
+          <span style={{color:activeAcc===a.id?"var(--ac)":"var(--sub)"}}>{a.label}</span>
+          {a.id!=="default"&&<span style={{fontSize:10,color:"var(--mut)",cursor:"pointer",marginLeft:4}} onClick={e=>{e.stopPropagation();removeAccount(a.id);}}>✕</span>}
+        </div>
+      ))}
+    </div>)}
+
+    {scanLog.length>0&&(<div style={{background:"var(--s2)",border:"1px solid var(--b1)",borderRadius:10,padding:"12px 14px",marginBottom:12,maxHeight:140,overflowY:"auto"}}>
+      <div style={{fontSize:11,fontWeight:700,color:"var(--mut)",letterSpacing:.5,textTransform:"uppercase",marginBottom:6}}>Log do scan</div>
+      {scanLog.map((l,i)=><div key={i} style={{fontSize:12,color:l.startsWith("✓")?"var(--ag)":l.startsWith("⚠")?"var(--ar)":"var(--sub)",padding:"2px 0"}}>{l}</div>)}
+    </div>)}
+
+    {curError&&<div style={{color:"var(--ar)",fontSize:13,margin:"10px 0",padding:"10px 14px",background:"rgba(220,53,69,.1)",borderRadius:8}}>⚠ {curError}</div>}
 
     <div style={{display:"grid",gridTemplateColumns:selEmail?"1fr 1fr":"1fr",gap:16}}>
       <div>
-        {emails.length===0&&!loading&&<div className="empty">Nenhum e-mail carregado.</div>}
-        {emails.map(e=>(
+        {curLoading&&<div style={{textAlign:"center",padding:30,color:"var(--sub)",fontSize:13}}>Carregando e-mails...</div>}
+        {!curLoading&&curEmails.length===0&&<div className="empty">Nenhum e-mail carregado.</div>}
+        {curEmails.map(e=>(
           <div key={e.id} className="card" style={{cursor:"pointer",borderColor:selEmail?.id===e.id?"var(--ac)":"transparent"}} onClick={()=>setSelEmail(selEmail?.id===e.id?null:e)}>
-            <div className="cb" style={{flex:1}}>
-              <div className="ct" style={{fontSize:13}}>{e.subject}</div>
+            <div className="cb" style={{flex:1,minWidth:0}}>
+              <div className="ct" style={{fontSize:13,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{e.subject}</div>
               <div className="cm" style={{display:"flex",gap:8,marginTop:3}}>
-                <span style={{flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.from}</span>
-                <span style={{flexShrink:0}}>{e.date?new Date(e.date).toLocaleDateString("pt-BR",{day:"2-digit",month:"short"}):""}</span>
+                <span style={{flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:11}}>{e.from}</span>
+                <span style={{flexShrink:0,fontSize:11}}>{e.date?new Date(e.date).toLocaleDateString("pt-BR",{day:"2-digit",month:"short"}):""}</span>
               </div>
             </div>
-            <button className="btn bsm" style={{fontSize:11,padding:"4px 10px",flexShrink:0,background:"rgba(91,138,240,.15)",color:"var(--ac)",border:"1px solid var(--ac)"}} disabled={analyzing===e.id} onClick={ev=>{ev.stopPropagation();analyzeAndCreate(e);}}>
-              {analyzing===e.id?"✦...":"📅 Criar evento"}
-            </button>
           </div>
         ))}
       </div>
-
       {selEmail&&(<div style={{background:"var(--s2)",border:"1px solid var(--b1)",borderRadius:"var(--r14)",padding:16,position:"sticky",top:0,maxHeight:"80vh",overflowY:"auto"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
-          <div style={{fontWeight:700,fontSize:14,flex:1,lineHeight:1.4}}>{selEmail.subject}</div>
+          <div style={{fontWeight:700,fontSize:14,flex:1,lineHeight:1.4,paddingRight:8}}>{selEmail.subject}</div>
           <button className="ib ibdel" onClick={()=>setSelEmail(null)}>✕</button>
         </div>
         <div style={{fontSize:12,color:"var(--sub)",marginBottom:4}}>De: {selEmail.from}</div>
         <div style={{fontSize:12,color:"var(--sub)",marginBottom:12}}>{selEmail.date?new Date(selEmail.date).toLocaleString("pt-BR"):""}</div>
-        <div style={{fontSize:13,lineHeight:1.7,color:"var(--tx)",whiteSpace:"pre-wrap",wordBreak:"break-word"}}>{selEmail.text||"(sem conteúdo)"}</div>
-        <div style={{marginTop:14}}>
-          <button className="btn bsm" style={{width:"100%"}} disabled={analyzing===selEmail.id} onClick={()=>analyzeAndCreate(selEmail)}>
-            {analyzing===selEmail.id?"✦ Analisando...":"📅 Analisar e criar no Google Agenda"}
-          </button>
-        </div>
+        <div style={{fontSize:13,lineHeight:1.7,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>{selEmail.text||"(sem conteúdo)"}</div>
       </div>)}
     </div>
   </div>);
