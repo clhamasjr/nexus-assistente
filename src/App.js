@@ -811,14 +811,16 @@ function Config() {
     setLoadingCals(false);
   };
 
-  // Restore token and reload calendars on mount
+  // Restore tokens and reload calendars on mount
   useEffect(()=>{
     setGapiReady(true);
-    if(_gcalToken&&_gcalToken.expires_at>Date.now()){
+    const validAccounts = Object.keys(_gcalTokens).filter(e=>_gcalTokens[e].expires_at>Date.now());
+    if(validAccounts.length>0){
       setGcalSigned(true);
-      // Restore token to gapi client then load calendars
       loadGapiClient().then(()=>{
-        if(window.gapi?.client) window.gapi.client.setToken({access_token:_gcalToken.access_token});
+        // Set first valid token so gapi is ready
+        const firstTok = _gcalTokens[validAccounts[0]];
+        if(window.gapi?.client) window.gapi.client.setToken({access_token:firstTok.access_token});
         loadCalendars();
       });
     }
@@ -1104,7 +1106,7 @@ function Rotina() {
 
 
 // ── Email Panel ───────────────────────────────────────────────────────────────
-const BACKEND_URL = "https://nexus-backend-production-5856.up.railway.app";
+const BACKEND_URL = "https://nexus-backend-production-e311.up.railway.app";
 
 function Emails() {
   const {session} = useContext(NexusCtx);
