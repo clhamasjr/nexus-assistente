@@ -69,8 +69,9 @@ const gcalGetToken = (forceNew=false, loginHint="") => new Promise(async (resolv
 
 const gcalListEvents = async (calendarId="primary", maxResults=20, loginHint="") => {
   await gcalGetToken(false, loginHint);
-  // If calendarId is the account's own email, use "primary" 
-  const effectiveId = (loginHint && calendarId === loginHint) ? "primary" : calendarId;
+  // If calendarId looks like an email (primary calendar), always use "primary"
+  const isEmail = /^[^@]+@[^@]+\.[^@]+$/.test(calendarId);
+  const effectiveId = isEmail ? "primary" : calendarId;
   const now = new Date().toISOString();
   const res = await window.gapi.client.calendar.events.list({ calendarId: effectiveId, timeMin: now, maxResults, singleEvents: true, orderBy: "startTime" });
   return res.result.items || [];
@@ -798,7 +799,15 @@ function Config() {
 
   const loadEvents=async(calId)=>{
     setLoadingEvts(true);
-    try{ const evts=await gcalListEvents(calId,30); setEvents(evts); }
+    try{
+      // Find which account owns this calendar
+      const cal=calendars.find(c=>c.id===calId);
+      const hint=cal?._account||"";
+      // If calId is the account's primary email, use "primary" instead
+      const effectiveId=(hint && calId===hint)?"primary":calId;
+      const evts=await gcalListEvents(effectiveId,30,hint);
+      setEvents(evts);
+    }
     catch(e){console.error(e);}
     setLoadingEvts(false);
   };
