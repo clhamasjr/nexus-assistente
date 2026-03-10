@@ -548,7 +548,7 @@ function MiniCalendar({events=[], reminders=[], cobrancas=[], onDayClick, selDay
 }
 
 function Dash() {
-  const {data,setTab,dueAlerts,pending,upcoming,cbPending}=useContext(NexusCtx);
+  const {data,setTab,dueAlerts,pending,upcoming,cbPending,gcalEvents}=useContext(NexusCtx);
   const [selDay,setSelDay]=useState(null);
   const itemsOnDay=(d)=>{
     if(!d) return [];
@@ -598,7 +598,7 @@ function Dash() {
 
     {/* Right column — Calendar */}
     <div style={{paddingTop:8}}>
-      <MiniCalendar reminders={data.reminders} cobrancas={data.cobrancas} selDay={selDay} onDayClick={setSelDay}/>
+      <MiniCalendar reminders={data.reminders} cobrancas={data.cobrancas} events={gcalEvents} selDay={selDay} onDayClick={setSelDay}/>
 
       {selDay&&(<div style={{background:"var(--s2)",border:"1px solid var(--b1)",borderRadius:"var(--r14)",padding:14}}>
         <div style={{fontSize:11,fontWeight:700,color:"var(--mut)",letterSpacing:.5,textTransform:"uppercase",marginBottom:10}}>
@@ -785,7 +785,7 @@ function Chat() {
 }
 
 function Config() {
-  const {data,upd}=useContext(NexusCtx);
+  const {data,upd,setGcalEvents}=useContext(NexusCtx);
   const [gcalSigned,setGcalSigned]=useState(false);
   const [calendars,setCalendars]=useState([]);
   const [selCal,setSelCal]=useState(null);
@@ -807,6 +807,7 @@ function Config() {
       const effectiveId=(hint && calId===hint)?"primary":calId;
       const evts=await gcalListEvents(effectiveId,30,hint);
       setEvents(evts);
+      setGcalEvents(prev=>{const ids=new Set(evts.map(e=>e.id));return[...prev.filter(e=>!ids.has(e.id)),...evts];});
     }
     catch(e){console.error(e);}
     setLoadingEvts(false);
@@ -1392,6 +1393,7 @@ export default function App() {
   const [resumindo,setResumindo]=useState(false);
 
   // Rotina
+  const [gcalEvents,setGcalEvents]=useState([]);
   const todayKey=new Date().toISOString().slice(0,10);
   const todayStr=new Date().toLocaleDateString("pt-BR",{weekday:"long",day:"2-digit",month:"long"});
   const [rotinaModal,setRotinaModal]=useState(false);
@@ -1537,6 +1539,7 @@ export default function App() {
     toggleHabito,toggleRotina,habDone,rotDone,habsFeitos,rotFeitos,
     totalHabs,totalRot,getWeekStats,getWeekDates,getNowMinutes,timeToMin,
     todayKey,todayStr,
+    gcalEvents,setGcalEvents,
   };
 
   const panels={dash:Dash,cobrancas:Cobrancas,tasks:Tasks,reminders:Reminders,reunioes:Reunioes,notes:Notes,chat:Chat,rotina:Rotina,config:Config,emails:Emails};
